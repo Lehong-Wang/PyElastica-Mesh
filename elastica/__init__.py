@@ -9,6 +9,8 @@ from elastica.rod.cosserat_rod import CosseratRod
 from elastica.rigidbody.rigid_body import RigidBodyBase
 from elastica.rigidbody.cylinder import Cylinder
 from elastica.rigidbody.sphere import Sphere
+from elastica.mesh.mesh_initializer import Mesh
+from elastica.rigidbody.mesh_rigid_body import MeshRigidBody
 from elastica.surface.plane import Plane
 from elastica.boundary_conditions import (
     ConstraintBase,
