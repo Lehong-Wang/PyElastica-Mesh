@@ -37,7 +37,6 @@ dependencies = [
     "mypy-extensions",
     "flake8",
     "cma",
-    "pyvista",
 ]
 
 [build-system]
