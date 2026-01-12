@@ -19,8 +19,8 @@ def cylinder_move_towards_rod(inclination_angle: float = 0.0) -> None:
 
     simulator = RodCylinderMoveContact()
 
-    final_time = 6.0
-    time_step = 5e-4
+    final_time = 10.0
+    time_step = 1e-5
     total_steps = int(final_time / time_step) + 1
     rendering_fps = 30
     step_skip = int(1.0 / (rendering_fps * time_step))
@@ -35,7 +35,7 @@ def cylinder_move_towards_rod(inclination_angle: float = 0.0) -> None:
     shear_modulus = youngs_modulus / (2 * (1 + poisson_ratio))
     n_elem = 50
 
-    start = np.array([0.2, 0.0, 0.5])
+    start = np.array([0.2, 0.001, 0.5])
     direction = np.array([0.0, 0.0, -1.0])
     normal = np.array([0.0, 1.0, 0.0])
 
