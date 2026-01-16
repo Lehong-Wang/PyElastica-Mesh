@@ -6,9 +6,11 @@ from elastica.rod.knot_theory import (
 )
 from elastica.rod.rod_base import RodBase
 from elastica.rod.cosserat_rod import CosseratRod
+from elastica.mesh import Mesh
 from elastica.rigidbody.rigid_body import RigidBodyBase
 from elastica.rigidbody.cylinder import Cylinder
 from elastica.rigidbody.sphere import Sphere
+from elastica.rigidbody import MeshRigidBody
 from elastica.surface.plane import Plane
 from elastica.boundary_conditions import (
     ConstraintBase,
@@ -46,6 +48,7 @@ from elastica.contact_forces import (
     RodPlaneContact,
     RodPlaneContactWithAnisotropicFriction,
     CylinderPlaneContact,
+    RodMeshContact,
 )
 from elastica.callback_functions import CallBackBaseClass, ExportCallBack, MyCallBack
 from elastica.dissipation import (

@@ -848,3 +848,100 @@ def _calculate_contact_forces_cylinder_plane(
     external_forces += plane_response_force_total
 
     return (_batch_norm(plane_response_force), no_contact_point_idx)
+
+
+@njit(cache=True)  # type: ignore
+def _calculate_contact_forces_rod_mesh(
+    closest_points_on_mesh: NDArray[np.float64],
+    contact_distances: NDArray[np.float64],
+    contact_normals: NDArray[np.float64],
+    rod_element_positions: NDArray[np.float64],
+    rod_velocity_collection: NDArray[np.float64],
+    rod_radii: NDArray[np.float64],
+    rod_external_forces: NDArray[np.float64],
+    mesh_position: NDArray[np.float64],
+    mesh_velocity: NDArray[np.float64],
+    mesh_angular_velocity: NDArray[np.float64],
+    mesh_external_forces: NDArray[np.float64],
+    mesh_external_torques: NDArray[np.float64],
+    mesh_director: NDArray[np.float64],
+    mesh_frozen: bool,
+    contact_k: np.float64,
+    contact_nu: np.float64,
+    velocity_damping_coefficient: np.float64,
+    friction_coefficient: np.float64,
+) -> None:
+    n_elems = rod_element_positions.shape[1]
+    mesh_total_contact_forces = np.zeros((3))
+    mesh_total_contact_torques = np.zeros((3))
+    for i in range(n_elems):
+        penetration = rod_radii[i] - contact_distances[i]
+        if penetration <= 0.0:
+            continue
+
+        normal = contact_normals[i]
+        contact_force = -contact_k * penetration * normal
+
+        moment_arm = closest_points_on_mesh[i] - mesh_position
+        if mesh_frozen:
+            mesh_point_velocity = np.zeros(3)
+        else:
+            mesh_point_velocity = mesh_velocity + np.cross(
+                mesh_angular_velocity, moment_arm
+            )
+        interpenetration_velocity = mesh_point_velocity - 0.5 * (
+            rod_velocity_collection[..., i] + rod_velocity_collection[..., i + 1]
+        )
+        normal_interpenetration_velocity = (
+            _dot_product(interpenetration_velocity, normal) * normal
+        )
+        contact_damping_force = -contact_nu * normal_interpenetration_velocity
+
+        net_contact_force = 0.5 * (contact_force + contact_damping_force)
+
+        slip_interpenetration_velocity = (
+            interpenetration_velocity - normal_interpenetration_velocity
+        )
+        slip_interpenetration_velocity_mag = np.linalg.norm(
+            slip_interpenetration_velocity
+        )
+        slip_interpenetration_velocity_unitized = slip_interpenetration_velocity / (
+            slip_interpenetration_velocity_mag + 1e-14
+        )
+        damping_force_in_slip_direction = (
+            velocity_damping_coefficient * slip_interpenetration_velocity_mag
+        )
+        coulombic_friction_force = friction_coefficient * np.linalg.norm(
+            net_contact_force
+        )
+        friction_force = (
+            -np.minimum(damping_force_in_slip_direction, coulombic_friction_force)
+            * slip_interpenetration_velocity_unitized
+        )
+        net_contact_force += friction_force
+
+        if i == 0:
+            rod_external_forces[..., i] -= 2 / 3 * net_contact_force
+            rod_external_forces[..., i + 1] -= 4 / 3 * net_contact_force
+            mesh_total_contact_forces += 2.0 * net_contact_force
+            mesh_total_contact_torques += np.cross(
+                moment_arm, 2.0 * net_contact_force
+            )
+        elif i == n_elems - 1:
+            rod_external_forces[..., i] -= 4 / 3 * net_contact_force
+            rod_external_forces[..., i + 1] -= 2 / 3 * net_contact_force
+            mesh_total_contact_forces += 2.0 * net_contact_force
+            mesh_total_contact_torques += np.cross(
+                moment_arm, 2.0 * net_contact_force
+            )
+        else:
+            rod_external_forces[..., i] -= net_contact_force
+            rod_external_forces[..., i + 1] -= net_contact_force
+            mesh_total_contact_forces += 2.0 * net_contact_force
+            mesh_total_contact_torques += np.cross(
+                moment_arm, 2.0 * net_contact_force
+            )
+
+    if not mesh_frozen:
+        mesh_external_forces[..., 0] += mesh_total_contact_forces
+        mesh_external_torques[..., 0] += mesh_director @ mesh_total_contact_torques

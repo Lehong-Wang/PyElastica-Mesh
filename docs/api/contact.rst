@@ -21,6 +21,7 @@ Description
    RodPlaneContact
    RodPlaneContactWithAnisotropicFriction
    CylinderPlaneContact
+   RodMeshContact
 
 
 Built-in Contact Classes
@@ -48,4 +49,7 @@ Built-in Contact Classes
    :special-members: __init__,apply_contact
 
 .. autoclass:: CylinderPlaneContact
+   :special-members: __init__,apply_contact
+
+.. autoclass:: RodMeshContact
    :special-members: __init__,apply_contact

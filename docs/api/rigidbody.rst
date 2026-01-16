@@ -8,6 +8,8 @@ Rigid Body
 +----------+----+
 | Sphere   |    |
 +----------+----+
+| Mesh     |    |
++----------+----+
 
 .. automodule:: elastica.rigidbody.rigid_body
    :members:
@@ -18,5 +20,9 @@ Rigid Body
    :exclude-members: __weakref__
 
 .. automodule:: elastica.rigidbody.sphere
+   :members:
+   :exclude-members: __weakref__
+
+.. automodule:: elastica.rigidbody.mesh_rigid_body
    :members:
    :exclude-members: __weakref__

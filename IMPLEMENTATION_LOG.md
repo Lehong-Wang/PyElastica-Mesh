@@ -1,0 +1,88 @@
+# IMPLEMENTATION LOG — Mesh Feature
+
+## 2026-01-14
+- Phase 0: Read mesh_implementation.md; mapped repository architecture, risks, and step checklist (dependency map + top 5 risks recorded in assistant response).
+- Step 1.1 (Chunk A) — Mesh initializer:
+  - Implemented `elastica/mesh/mesh_initializer.py` with Mesh class (Open3D load, watertight checks, COM/volume/inertia with vectorized tetrahedral integrals and OBB fallback, recenter support).
+  - Added `elastica/mesh/__init__.py` and exported Mesh via `elastica/__init__.py`.
+  - Validation attempt: `python - <<'PY' ... Mesh('tests/cube.stl') ... PY` failed because `numba` is not installed in the current environment. Open3D import is available (`open3d present: True`). Will rerun once dependencies are synced.
+- Step 1.2 (Chunk A) — MeshRigidBody:
+  - Added `elastica/rigidbody/mesh_rigid_body.py` (material-frame storage, RaycastingScene built once, closest-point queries with query transforms).
+  - Updated exports in `elastica/rigidbody/__init__.py` and `elastica/__init__.py`.
+  - Validation attempt with `python - <<'PY' ... MeshRigidBody ... PY` blocked by missing `numba` (package import triggers elastica/__init__). Plan: rerun quick Open3D box query once dependencies are installed.
+- Step 2.1 (Chunk B) — Numba contact kernel:
+  - Implemented `_calculate_contact_forces_rod_mesh` in `elastica/_contact_functions.py` (spring-damper + optional friction, 2/3–4/3 rod distribution, equal/opposite forces/torques on mesh).
+  - Validation pending; cannot import numba in current environment (will rerun after deps).
+- Step 2.2 (Chunk B) — RodMeshContact:
+  - Added `RodMeshContact` in `elastica/contact_forces.py`, wired to MeshRigidBody with two-stage query + Numba kernel. Exported via `elastica/__init__.py`.
+  - Validation pending due to missing numba; will test once dependencies installed.
+- Step 4.1 (Chunk C) — Mesh initializer tests:
+  - Added `tests/test_mesh/test_mesh_initializer.py` (Open3D box volume/COM/inertia, normals, OBB fallback, recenter).
+  - Command: `python -m pytest tests/test_mesh/test_mesh_initializer.py` (passes; warns on non-watertight STL).
+- Step 4.2 (Chunk C) — MeshRigidBody tests:
+  - Added `tests/test_rigid_body/test_mesh_rigid_body.py` (init properties, query with rotation/translation, accelerations, energies).
+  - Uses local stubs for numba/_linalg to run without numba installed.
+  - Command: `python -m pytest tests/test_rigid_body/test_mesh_rigid_body.py` (passes).
+- Step 4.3 (Chunk C) — RodMeshContact integration tests:
+  - Added `tests/test_contact/test_rod_mesh_contact.py` (no-contact case, penetration force balance using RodMeshContact + MeshRigidBody).
+  - Injected numba stub to allow import in current environment; rerun with real numba when available.
+  - Command: `python -m pytest tests/test_contact/test_rod_mesh_contact.py` (passes with stub).
+- Chunk D (Examples & post-processing):
+  - Added MeshCase package scaffold and examples:
+    - `mesh_freefall.py` (mesh under gravity),
+    - `mesh_rod_collision.py` (rod vs mesh contact),
+    - `mesh_frozen_contact.py` (immovable mesh contact),
+    - `post_processing.py` (matplotlib utilities).
+  - Imports verified with numba stub (`python - <<'PY' ... import examples.MeshCase... PY`), matplotlib warned about cache perms.
+- Step 5.1 (Chunk E) — Dependencies:
+  - Added `open3d>=0.13.0` to `pyproject.toml`. NumPy/numba already declared; numba installation blocked by restricted network (`python -m pip install numba` failed).
+- Step 5.2 (Chunk E) — Exports:
+  - Mesh, MeshRigidBody, RodMeshContact exported via package `__init__.py`.
+- Step 5.3 (Chunk E) — Full test suite:
+  - Pending: full `make test` not run because numba unavailable; targeted tests run with stubs.
+- Step 5.4 (Chunk E) — Formatting:
+  - Attempted `python -m black ...` failed (`No module named black`); dev deps not installed in sandbox.
+- Step 5.5 (Chunk E) — Docs:
+  - Added `docs/api/mesh.rst`; updated `docs/api/contact.rst`, `docs/api/rigidbody.rst`, and `docs/index.rst` to include Mesh/MeshRigidBody/RodMeshContact.
+- Step 5.3 (Chunk E) — Full test suite:
+  - Installed numba and black into `.venv`; ran `.venv/bin/python -m pytest` → 2163 passed, 1 skipped, expected xfails; warnings about non-watertight STL and pytest collection noted.
+- Step 5.4 (Chunk E) — Formatting:
+  - Ran Black on code targets (`elastica/mesh/mesh_initializer.py`, `elastica/rigidbody/mesh_rigid_body.py`, MeshCase examples, mesh/contact tests). Black on RST intentionally skipped (parser errors).
+- Examples refresh:
+  - Updated MeshCase examples to use new meshes (`mytest/bunny.stl`, `mytest/cube_tight.stl`) and added video rendering via `post_processing.plot_mesh_animation` with rod overlays.
+  - Ran examples with `.venv/bin/python`:
+    - `examples/MeshCase/mesh_freefall.py` → produced `mesh_freefall.mp4`.
+    - `examples/MeshCase/mesh_rod_collision.py` → produced `mesh_rod_collision.mp4`.
+    - `examples/MeshCase/mesh_frozen_contact.py` → produced `mesh_frozen_contact.mp4`.
+  - Warnings: matplotlib cache permission (uses temp dir), meshes not watertight.
+
+## 2026-01-14 (continued)
+- Step 6 — Mesh centering consolidation:
+  - Enforced automatic COM-centering in `elastica/mesh/mesh_initializer.py`, removed `com_offset` bookkeeping, and added a warning when callers request `recenter_to_com=False`.
+  - Centering now refreshes normals/OBB on the translated geometry and uses a helper to compute the raw COM before translation.
+  - Validation: `.venv/bin/python - <<'PY' ... Mesh('tests/cube.stl', recenter_to_com=False) ... PY` confirms meshes load centered (COM and vertex mean at zero; expected watertight warning emitted).
+- Step 7 — Transform alignment and tests:
+  - MeshRigidBody now assumes COM-centered geometry (removed `_com_offset`), inertia uses centered meshes, and query transforms rely solely on position/director.
+  - Mesh, rigid body, and contact tests updated for auto-centering and warning expectations.
+  - Validation: `.venv/bin/python -m pytest tests/test_mesh/test_mesh_initializer.py ...` failed (pytest missing in env); fallback sanity script with `.venv/bin/python - <<'PY' ... query_closest_points ... PY` produced expected closest point (distance 1.5, unit normal, COM at zero).
+- Step 8 — Rendering timing and asset updates:
+  - Added speed_factor-aware frame sampling in `examples/MeshCase/post_processing.py` to keep video playback aligned with simulation time (single-view and multi-view), retaining tqdm progress bars.
+  - Examples now accept `render_speed`/`render_fps`; rod collision uses `mytest/bunny.stl` and inertia calls assume COM-centered geometry in Mesh.
+  - Validation: `.venv/bin/python - <<'PY' ... _compute_render_indices(...) ... PY` yields render_duration matching expected simulation time after speedup (warnings from matplotlib cache paths noted).
+- Step 9 — Validation:
+  - `.venv/bin/python -m pytest ...` still unavailable (pytest not installed); short-run example executed via `.venv/bin/python - <<'PY' ... mesh_freefall_simulation(final_time=0.02, dt=1e-3, render_speed=1.0, render_fps=24) ... PY`, generating `mesh_freefall_quick.mp4`.
+  - Matplotlib emitted cache-directory warnings during helper/example runs; no runtime errors from simulation/contact/rendering.
+
+## 2026-01-15
+- Mesh centering modes:
+  - Updated `Mesh` loader to honor `recenter_to_com=False` by leaving geometry untouched (assumes input origin is COM) while keeping COM-centering as default; refreshed docstring and raw Open3D guidance.
+  - Adjusted mesh initializer tests to cover both centering on (COM→0) and centering off (geometry unchanged).
+- Raw Open3D guidance:
+  - Added docstring notes in `MeshRigidBody` about passing COM-centered Open3D meshes when bypassing `Mesh`.
+- Frozen contact fix:
+  - `_calculate_contact_forces_rod_mesh` now zeros mesh linear/angular velocity contributions when `mesh_frozen=True`, so damping/friction ignore spinning/moving frozen obstacles.
+  - Added regression test ensuring frozen contact ignores mesh velocity/omega and applies no reaction to the mesh.
+- Example fail-safe rendering:
+  - Wrapped mesh examples (`mesh_freefall`, `mesh_rod_collision`, `mesh_frozen_contact`) in try/except to render collected diagnostics on failure before re-raising.
+- Validation:
+  - Attempted `.venv/bin/python -m pytest tests/test_mesh/test_mesh_initializer.py tests/test_contact/test_rod_mesh_contact.py` → failed (pytest not installed in `.venv`). Pending once pytest available.
