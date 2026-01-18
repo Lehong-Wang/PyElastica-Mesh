@@ -43,6 +43,12 @@ class Mesh:
         if self.mesh.is_empty():
             raise ValueError("Loaded mesh is empty.")
 
+        # Clean up mesh geometry.
+        self.mesh.merge_close_vertices(1e-6)
+        self.mesh.remove_degenerate_triangles()
+        self.mesh.remove_duplicated_triangles()
+        self.mesh.remove_unreferenced_vertices()
+
         self.mesh.compute_vertex_normals()
         self.mesh.compute_triangle_normals()
 
