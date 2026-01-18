@@ -6,6 +6,7 @@ from elastica.typing import RodType, SystemType, SurfaceType
 from elastica.rod.rod_base import RodBase
 from elastica.rigidbody.cylinder import Cylinder
 from elastica.rigidbody.sphere import Sphere
+from elastica.rigidbody.mesh_rigid_body import MeshRigidBody
 from elastica.surface.plane import Plane
 from elastica.surface.surface_base import SurfaceBase
 from elastica.contact_utils import (
@@ -21,6 +22,7 @@ from elastica._contact_functions import (
     _calculate_contact_forces_rod_plane,
     _calculate_contact_forces_rod_plane_with_anisotropic_friction,
     _calculate_contact_forces_cylinder_plane,
+    _calculate_contact_forces_rod_mesh,
 )
 import numpy as np
 from numpy.typing import NDArray
@@ -457,6 +459,67 @@ class RodSphereContact(NoContact):
             system_two.director_collection[:, :, 0],
             system_one.velocity_collection,
             system_two.velocity_collection,
+            self.k,
+            self.nu,
+            self.velocity_damping_coefficient,
+            self.friction_coefficient,
+        )
+
+
+class RodMeshContact(NoContact):
+    """
+    Contact forces between a rod (system one) and a mesh rigid body (system two).
+    """
+
+    def __init__(
+        self,
+        k: float,
+        nu: float,
+        velocity_damping_coefficient: float = 0.0,
+        friction_coefficient: float = 0.0,
+        mesh_frozen: bool = False,
+    ) -> None:
+        super(RodMeshContact, self).__init__()
+        self.k = np.float64(k)
+        self.nu = np.float64(nu)
+        self.velocity_damping_coefficient = np.float64(velocity_damping_coefficient)
+        self.friction_coefficient = np.float64(friction_coefficient)
+        self.mesh_frozen = bool(mesh_frozen)
+
+    @property
+    def _allowed_system_two(self) -> list[Type]:
+        return [MeshRigidBody]
+
+    def apply_contact(
+        self,
+        system_one: RodType,
+        system_two: MeshRigidBody,
+        time: np.float64 = np.float64(0.0),
+    ) -> None:
+        rod_element_position = 0.5 * (
+            system_one.position_collection[..., 1:]
+            + system_one.position_collection[..., :-1]
+        )
+
+        closest_pts, distances, normals = system_two.query_closest_points(
+            rod_element_position.T
+        )
+
+        _calculate_contact_forces_rod_mesh(
+            np.asarray(closest_pts, dtype=np.float64),
+            np.asarray(distances, dtype=np.float64),
+            np.asarray(normals, dtype=np.float64),
+            rod_element_position,
+            system_one.velocity_collection,
+            system_one.radius,
+            system_one.external_forces,
+            system_two.position_collection[..., 0],
+            system_two.velocity_collection[..., 0],
+            system_two.omega_collection[..., 0],
+            system_two.external_forces,
+            system_two.external_torques,
+            system_two.director_collection[:, :, 0],
+            self.mesh_frozen,
             self.k,
             self.nu,
             self.velocity_damping_coefficient,
