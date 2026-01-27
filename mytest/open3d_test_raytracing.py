@@ -118,7 +118,8 @@ def closest_point_query(scene: o3d.t.geometry.RaycastingScene, query_pts_np: np.
     ans = scene.compute_closest_points(q)
     closest_pts = ans["points"].numpy()
     prim_ids = ans["primitive_ids"].numpy().astype(np.int64)  # triangle ids
-    return closest_pts, prim_ids
+    dists = scene.compute_signed_distance(q).numpy()
+    return closest_pts, prim_ids, dists
 
 
 def main():
@@ -126,8 +127,18 @@ def main():
     np.random.seed(10)
 
     mesh, tri_to_face, face_id_to_name = build_colored_cube_vertexcolors()
-    mesh = load_bunny()
-    mesh.scale(10.0, center=mesh.get_center())
+    # mesh = load_bunny()
+    mesh = o3d.io.read_triangle_mesh("mytest/bunny_low_10_center.stl")
+
+    mesh.merge_close_vertices(1e-6)
+    mesh.remove_degenerate_triangles()
+    mesh.remove_duplicated_triangles()
+    mesh.remove_unreferenced_vertices()
+
+    mesh.compute_vertex_normals()
+
+    mesh.scale(2.0, center=mesh.get_center())
+    print(f"watertight: {mesh.is_watertight()}")
     # RaycastingScene uses the tensor mesh
     tmesh = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
     scene = o3d.t.geometry.RaycastingScene()
@@ -144,10 +155,10 @@ def main():
         [0.7, 0.7, 0.7],  # gray
     ], dtype=np.float64)
 
-    closest_pts, prim_ids = closest_point_query(scene, query_pts)
+    closest_pts, prim_ids, dists = closest_point_query(scene, query_pts)
 
     # face_ids = tri_to_face[prim_ids]
-    dists = np.linalg.norm(query_pts - closest_pts, axis=1)
+    # dists = np.linalg.norm(query_pts - closest_pts, axis=1)
 
     # print("\nLegend (face_id -> face):")
     # for fid in range(6):

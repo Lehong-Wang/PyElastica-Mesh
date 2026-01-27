@@ -60,7 +60,7 @@ def rod_mesh_collision(
         time_step=dt,
     )
 
-    mesh = ea.Mesh("mytest/bunny_low_10.stl")
+    mesh = ea.Mesh("mytest/bunny_low_10_center.stl")
     density_mesh = 10.0
     volume = mesh.compute_volume()
     inertia = mesh.compute_inertia_tensor(density=density_mesh)

@@ -47,7 +47,7 @@ def rod_mesh_collision(
         constrained_director_idx=(0,),
     )
 
-    mesh = ea.Mesh("mytest/bunny_low_10.stl")
+    mesh = ea.Mesh("mytest/bunny_low_10_center.stl")
     # mesh = ea.Mesh("mytest/cube_tight.stl")
     density_mesh = 10.0
     volume = mesh.compute_volume()
@@ -169,7 +169,7 @@ if __name__ == "__main__":
     rod_mesh_collision(
         final_time=5.0,
         velocity_damping=5e-2,
-        dt=1.0e-5,
+        dt=3.0e-5,
         output="mesh_rod_collision.mp4",
         render_speed=1.0,
         render_fps=None,

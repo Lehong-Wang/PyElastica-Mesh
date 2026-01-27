@@ -20,9 +20,9 @@ class Mesh:
 
     Notes
     -----
-    - If ``recenter_to_com=True`` (default), the mesh is translated so its COM is
+    - If ``recenter_to_com=True``, the mesh is translated so its COM is
       at the origin in the material frame. This is recommended for correctness.
-    - If ``recenter_to_com=False``, the mesh geometry is left untouched and the
+    - If ``recenter_to_com=False`` (default), the mesh geometry is left untouched and the
       caller is responsible for ensuring the input origin coincides with the COM.
       Volume/COM/inertia are computed in that provided frame.
     - When passing a raw Open3D TriangleMesh directly, ensure it is already
@@ -32,7 +32,7 @@ class Mesh:
     def __init__(
         self,
         mesh_or_path: str | o3d.geometry.TriangleMesh,
-        recenter_to_com: bool = True,
+        recenter_to_com: bool = False,
         warn_if_not_watertight: bool = True,
     ) -> None:
         if isinstance(mesh_or_path, str):
@@ -72,6 +72,7 @@ class Mesh:
             raw_com = self._compute_center_of_mass_from_arrays(
                 self.vertices, self.triangles, self.is_watertight, self.obb
             )
+            # print(f"Recentering mesh to COM: {raw_com}")
             self.mesh.translate(-raw_com)
             self.mesh.compute_vertex_normals()
             self.mesh.compute_triangle_normals()
