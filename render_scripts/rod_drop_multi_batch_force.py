@@ -340,7 +340,7 @@ def run_multi_rod_drop_batch(
     contact_nu: float = 20.0,
     friction_coefficient: float = 1.5,
     damping_constant: float = 1e-2,
-    num_rods: int = 8,
+    num_rods: int = 4,
     height_gap: float = 0.2,
     output_interval: float = 0.01,
     render_speed: float = 1.0,
