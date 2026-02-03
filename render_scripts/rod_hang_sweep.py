@@ -146,6 +146,8 @@ def run_hang_with_sweep(
     impulse_duration_range: tuple[float, float] = (0.01, 0.02),
     available_radii: tuple[float, ...] = (0.001, 0.003, 0.005),
     total_rods: int = 4,
+    ym_low: float = 1e5,
+    ym_high: float = 1e10,
     render: bool = True,
     save_state: bool = True,
     seed: int | None = None,
@@ -213,7 +215,7 @@ def run_hang_with_sweep(
         return float(rng.choice(available_radii))
 
     def _sample_ym():
-        return float(np.exp(rng.uniform(np.log(1e6), np.log(1e8))))
+        return float(np.exp(rng.uniform(np.log(ym_low), np.log(ym_high))))
 
     total_rods = max(2, int(total_rods))
     # Decide counts: at least 1 hanging and 1 sweeping.

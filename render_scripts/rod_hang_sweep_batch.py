@@ -55,14 +55,13 @@ def run_hang_with_sweep_batch(
     damping_constant: float = 5e-2,
     contact_k: float = 2e4,
     contact_nu: float = 5.0,
-    enable_rod_rod_contact: bool = True,
-    total_rods: int = 8,
+    total_rods: int = 4,
     output_interval: float = 0.01,
     render_speed: float = 1.0,
     render_fps: int | None = None,
     available_radii: Sequence[float] = (0.001, 0.003, 0.005),
-    ym_low: float = 1e5,
-    ym_high: float = 1e10,
+    ym_low: float = 5e5,
+    ym_high: float = 2e7,
 ) -> dict[str, object]:
     """
     Batch 50 randomized hanging/sweeping simulations; aggregate last frames and metadata.
@@ -114,8 +113,10 @@ def run_hang_with_sweep_batch(
             damping_constant=damping_constant,
             contact_k=contact_k,
             contact_nu=contact_nu,
-            enable_rod_rod_contact=enable_rod_rod_contact,
             total_rods=total_rods,
+            available_radii=tuple(available_radii),
+            ym_low=ym_low,
+            ym_high=ym_high,
             output_dir=output_dir,
             output_name=per_run_name,
             output_interval=output_interval,
@@ -142,8 +143,10 @@ def run_hang_with_sweep_batch(
                 raise RuntimeError("time_arr differs across runs; check dt/final_time/output_interval consistency.")
 
         mid_idx = len(pos_arr) // 2
-        pos_last_list.append(np.stack([pos_arr[mid_idx], pos_arr[-1]], axis=0))  # (2, num_rods, 3, n_nodes)
-        dir_last_list.append(np.stack([dir_arr[mid_idx], dir_arr[-1]], axis=0))  # (2, num_rods, 3, 3, n_elems)
+        pos_last_list.append(pos_arr[mid_idx])
+        pos_last_list.append(pos_arr[-1])
+        dir_last_list.append(dir_arr[mid_idx])
+        dir_last_list.append(dir_arr[-1])
         impulse_nodes_list.append(impulse_nodes)
         impulse_vectors_list.append(impulse_vectors)
         impulse_steps_list.append(impulse_steps)
@@ -158,8 +161,8 @@ def run_hang_with_sweep_batch(
             if res["video_path_four"] is not None:
                 saved_full_videos.append(Path(res["video_path_four"]))
 
-    pos_last_arr = np.stack(pos_last_list, axis=0)  # (n_runs, 2, num_rods, 3, n_nodes) [0=mid,1=final]
-    dir_last_arr = np.stack(dir_last_list, axis=0)  # (n_runs, 2, num_rods, 3, 3, n_elems)
+    pos_last_arr = np.stack(pos_last_list, axis=0)  # (n_runs*2, num_rods, 3, n_nodes); even=mid, odd=final
+    dir_last_arr = np.stack(dir_last_list, axis=0)  # (n_runs*2, num_rods, 3, 3, n_elems)
     impulse_nodes_arr = np.stack(impulse_nodes_list, axis=0)
     impulse_vectors_arr = np.stack(impulse_vectors_list, axis=0)
     impulse_steps_arr = np.stack(impulse_steps_list, axis=0)
@@ -207,7 +210,7 @@ def run_hang_with_sweep_batch(
 
 if __name__ == "__main__":
     results = run_hang_with_sweep_batch(
-        n_runs=50,
+        n_runs=25,
         save_full_for_first_k=3,
         master_seed=123,
         output_name="rod_hang_sweep",
