@@ -84,6 +84,71 @@ def _frame_iter(frame_indices: Sequence[int], desc: str):
     return tqdm(frame_indices, total=len(frame_indices), desc=desc)
 
 
+def _truncate_to_valid_prefix(
+    times: np.ndarray | Sequence[float] | None,
+    *arrays: np.ndarray | Sequence[np.ndarray] | None,
+    label: str = "data",
+):
+    """Trim inputs to the shortest length and drop frames after the first non-finite value.
+
+    This mirrors the fail-safe rendering pattern used in examples/MeshCase: when a solver
+    throws mid-run or produces NaNs, we still want to render every frame collected before
+    the failure. The function returns the truncated time array (or None) plus a list of
+    truncated arrays in the same order they were provided.
+    """
+
+    times_arr = None if times is None else np.asarray(times)
+    arrs = [None if a is None else np.asarray(a) for a in arrays]
+
+    lengths = [arr.shape[0] for arr in arrs if arr is not None]
+    if times_arr is not None:
+        lengths.append(times_arr.shape[0])
+
+    if not lengths:
+        return times_arr, arrs
+
+    max_frames = min(lengths)
+    if max_frames == 0:
+        return (
+            times_arr[:0] if times_arr is not None else None,
+            [arr[:0] if arr is not None else None for arr in arrs],
+        )
+
+    times_arr = times_arr[:max_frames] if times_arr is not None else None
+    arrs = [arr[:max_frames] if arr is not None else None for arr in arrs]
+
+    fail_idx = None
+    for i in range(max_frames):
+        if times_arr is not None and not np.isfinite(times_arr[i]):
+            fail_idx = i
+            break
+        for arr in arrs:
+            if arr is not None and not np.all(np.isfinite(arr[i])):
+                fail_idx = i
+                break
+        if fail_idx is not None:
+            break
+
+    if fail_idx is None:
+        return times_arr, arrs
+
+    # Truncate at the first invalid frame; keep users informed without breaking rendering.
+    try:
+        tqdm.write(
+            f"[post_processing] Detected non-finite values at frame {fail_idx} in {label}; "
+            f"rendering frames [0, {fail_idx}) only."
+        )
+    except Exception:
+        print(
+            f"[post_processing] Detected non-finite values at frame {fail_idx} in {label}; "
+            f"rendering frames [0, {fail_idx}) only."
+        )
+
+    times_arr = times_arr[:fail_idx] if times_arr is not None else None
+    arrs = [arr[:fail_idx] if arr is not None else None for arr in arrs]
+    return times_arr, arrs
+
+
 def _auto_bounds(arrays: Sequence[np.ndarray], margin: float = 0.1):
     """
     Compute global xyz bounds over any array that has one axis of length 3 (xyz).
@@ -171,6 +236,8 @@ def plot_rods_video(
     rod_positions = np.asarray(rod_positions)
     if rod_positions.ndim == 3:
         rod_positions = rod_positions[:, None, ...]
+    times, arrs = _truncate_to_valid_prefix(times, rod_positions, label="rod_positions")
+    rod_positions = arrs[0] if arrs else rod_positions
 
     n_frames, n_rods = rod_positions.shape[:2]
     fps_used, frame_indices = _compute_render_indices(times, n_frames, fps, speed)
@@ -245,6 +312,8 @@ def plot_rods_multiview(
     rod_positions = np.asarray(rod_positions)
     if rod_positions.ndim == 3:
         rod_positions = rod_positions[:, None, ...]
+    times, arrs = _truncate_to_valid_prefix(times, rod_positions, label="rod_positions")
+    rod_positions = arrs[0] if arrs else rod_positions
     n_frames, n_rods = rod_positions.shape[:2]
 
     fps_used, frame_indices = _compute_render_indices(times, n_frames, fps, speed)
@@ -274,6 +343,7 @@ def plot_rods_multiview(
 
     def _setup_axes():
         ax3d.set_xlim(xmin, xmax); ax3d.set_ylim(ymin, ymax); ax3d.set_zlim(zmin, zmax)
+        ax3d.set_box_aspect((xmax - xmin, ymax - ymin, zmax - zmin))
         ax3d.set_xlabel("X"); ax3d.set_ylabel("Y"); ax3d.set_zlabel("Z")
         for ax, lbls, xl, yl in [
             (ax_front, ("Y", "Z"), (ymin, ymax), (zmin, zmax)),
@@ -352,16 +422,21 @@ def plot_rods_with_mesh(
     rod_positions = np.asarray(rod_positions)
     if rod_positions.ndim == 3:
         rod_positions = rod_positions[:, None, ...]
-    n_frames, n_rods = rod_positions.shape[:2]
+    mesh_o3d = mesh_dict["mesh"]
+    mesh_pos = np.asarray(mesh_dict["position"])
+    mesh_dir = np.asarray(mesh_dict["director"])
 
     times = mesh_dict.get("time") if times is None else times
+    times, arrs = _truncate_to_valid_prefix(
+        times, mesh_pos, mesh_dir, rod_positions, label="rods_with_mesh"
+    )
+    mesh_pos, mesh_dir, rod_positions = arrs
+
+    n_frames, n_rods = rod_positions.shape[:2]
+
     fps_used, frame_indices = _compute_render_indices(times, n_frames, fps, speed)
     if len(frame_indices) == 0:
         return
-
-    mesh_o3d = mesh_dict["mesh"]
-    mesh_pos = np.asarray(mesh_dict["position"])[:n_frames]
-    mesh_dir = np.asarray(mesh_dict["director"])[:n_frames]
 
     base_poly, vertices_body, triangles = _mesh_to_poly(mesh_o3d)
 
@@ -453,12 +528,17 @@ def plot_rods_with_mesh_multiview(
     rod_positions = np.asarray(rod_positions)
     if rod_positions.ndim == 3:
         rod_positions = rod_positions[:, None, ...]
-    n_frames, n_rods = rod_positions.shape[:2]
-
     mesh_o3d = mesh_dict["mesh"]
-    mesh_pos = np.asarray(mesh_dict["position"])[:n_frames]
-    mesh_dir = np.asarray(mesh_dict["director"])[:n_frames]
+    mesh_pos = np.asarray(mesh_dict["position"])
+    mesh_dir = np.asarray(mesh_dict["director"])
     times = mesh_dict.get("time") if times is None else times
+
+    times, arrs = _truncate_to_valid_prefix(
+        times, mesh_pos, mesh_dir, rod_positions, label="rods_mesh_multiview"
+    )
+    mesh_pos, mesh_dir, rod_positions = arrs
+
+    n_frames, n_rods = rod_positions.shape[:2]
 
     base_poly, vertices_body, triangles = _mesh_to_poly(mesh_o3d)
 
@@ -491,6 +571,7 @@ def plot_rods_with_mesh_multiview(
 
     def _setup_axes():
         ax3d.set_xlim(xmin, xmax); ax3d.set_ylim(ymin, ymax); ax3d.set_zlim(zmin, zmax)
+        ax3d.set_box_aspect((xmax - xmin, ymax - ymin, zmax - zmin))
         ax3d.set_xlabel("X"); ax3d.set_ylabel("Y"); ax3d.set_zlabel("Z")
         for ax, lbls, xl, yl in [
             (ax_front, ("Y", "Z"), (ymin, ymax), (zmin, zmax)),
