@@ -880,7 +880,8 @@ def _calculate_contact_forces_rod_mesh(
             continue
 
         normal = contact_normals[i]
-        contact_force = -contact_k * penetration * normal
+        # Force direction follows contact_test Option B: outward normal
+        elastic_force_on_rod = contact_k * penetration * normal
 
         moment_arm = closest_points_on_mesh[i] - mesh_position
         if mesh_frozen:
@@ -889,15 +890,17 @@ def _calculate_contact_forces_rod_mesh(
             mesh_point_velocity = mesh_velocity + np.cross(
                 mesh_angular_velocity, moment_arm
             )
-        interpenetration_velocity = mesh_point_velocity - 0.5 * (
+        rod_avg_velocity = 0.5 * (
             rod_velocity_collection[..., i] + rod_velocity_collection[..., i + 1]
         )
+        # Relative velocity of rod w.r.t. mesh
+        interpenetration_velocity = rod_avg_velocity - mesh_point_velocity
         normal_interpenetration_velocity = (
             _dot_product(interpenetration_velocity, normal) * normal
         )
-        contact_damping_force = -contact_nu * normal_interpenetration_velocity
+        damping_force_on_rod = -contact_nu * normal_interpenetration_velocity
 
-        net_contact_force = 0.5 * (contact_force + contact_damping_force)
+        net_normal_force_on_rod = elastic_force_on_rod + damping_force_on_rod
 
         slip_interpenetration_velocity = (
             interpenetration_velocity - normal_interpenetration_velocity
@@ -912,14 +915,17 @@ def _calculate_contact_forces_rod_mesh(
             velocity_damping_coefficient * slip_interpenetration_velocity_mag
         )
         coulombic_friction_force = friction_coefficient * np.linalg.norm(
-            net_contact_force
+            net_normal_force_on_rod
         )
-        friction_force = (
+        friction_force_on_rod = (
             -np.minimum(damping_force_in_slip_direction, coulombic_friction_force)
             * slip_interpenetration_velocity_unitized
         )
-        net_contact_force += friction_force
+        total_contact_force_on_rod = net_normal_force_on_rod + friction_force_on_rod
 
+        # Distribute per-node forces; keep existing weighting scheme.
+        # net_contact_force is defined such that rod node updates use "-=" like other contact kernels.
+        net_contact_force = -0.5 * total_contact_force_on_rod
         if i == 0:
             rod_external_forces[..., i] -= 2 / 3 * net_contact_force
             rod_external_forces[..., i + 1] -= 4 / 3 * net_contact_force

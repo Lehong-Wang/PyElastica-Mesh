@@ -86,3 +86,8 @@
   - Wrapped mesh examples (`mesh_freefall`, `mesh_rod_collision`, `mesh_frozen_contact`) in try/except to render collected diagnostics on failure before re-raising.
 - Validation:
   - Attempted `.venv/bin/python -m pytest tests/test_mesh/test_mesh_initializer.py tests/test_contact/test_rod_mesh_contact.py` → failed (pytest not installed in `.venv`). Pending once pytest available.
+
+## 2026-02-05
+- Removed COM recentring support from `elastica/mesh/mesh_initializer.py`; loader now leaves geometry untouched and assumes inputs are already COM-centered.
+- Simplified mesh initializer API (dropped `recenter_to_com` flag) and updated tests to assert geometry remains unchanged on load.
+- Adjusted helper script `mytest/mesh_com_inspect.py` and design notes in `mesh_implementation.md` to reflect the no-recenter assumption.

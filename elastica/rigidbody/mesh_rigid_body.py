@@ -24,6 +24,11 @@ class MeshRigidBody(RigidBodyBase):
       COM in the material frame and associated mass properties must match.
     """
 
+    # Contact probe tolerances (mirrors mytest/contact_test.py Option B)
+    _EPS_DIST = 1.0e-9
+    _EPS_SURFACE = 1.0e-6
+    _OCCUPANCY_NSAMPLES = 1
+
     def __init__(
         self,
         mesh,
@@ -45,6 +50,7 @@ class MeshRigidBody(RigidBodyBase):
         self._triangle_normals_material = np.asarray(
             self._mesh_material_frame.triangle_normals, dtype=np.float64
         )
+        self._is_watertight = bool(getattr(mesh, "is_watertight", False))
 
         self._scene = self._build_raycasting_scene(
             self._mesh_material_frame, self._vertices_material, self._triangles_indices
@@ -113,12 +119,12 @@ class MeshRigidBody(RigidBodyBase):
         self, query_points_world: NDArray[np.float64]
     ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
         """
-        Closest points, distances, and normals for query points in world frame.
+        Closest points, signed distances, and normals for query points in world frame.
 
         Returns
         -------
         closest_points_world : (N, 3) array
-        distances : (N,) array
+        distances : (N,) array, signed (positive outside, negative inside)
         normals_world : (N, 3) array
         """
         query_pts = np.asarray(query_points_world, dtype=np.float64)
@@ -138,23 +144,45 @@ class MeshRigidBody(RigidBodyBase):
             )
 
         direction = query_material - closest_material
-        direction_norm = np.linalg.norm(direction, axis=1)
-        normals_material = np.zeros_like(direction)
-        valid_dir = direction_norm > 1.0e-12
-        normals_material[valid_dir] = (
-            direction[valid_dir].T / direction_norm[valid_dir]
-        ).T
+        unsigned_distances = np.linalg.norm(direction, axis=1)
 
-        valid_ids = (triangle_ids >= 0) & (~valid_dir)
-        if np.any(valid_ids):
-            normals_material[valid_ids] = self._triangle_normals_material[
-                triangle_ids[valid_ids]
-            ]
+        tri_normals = self._triangle_normals_material
+        face_normals = np.zeros_like(direction)
+        valid_triangles = (triangle_ids >= 0) & (triangle_ids < tri_normals.shape[0])
+        face_normals[valid_triangles] = tri_normals[triangle_ids[valid_triangles]]
+
+        normals_material = np.zeros_like(direction)
+        stable = unsigned_distances > self._EPS_DIST
+        normals_material[stable] = direction[stable] / unsigned_distances[stable][:, None]
+        normals_material[~stable] = face_normals[~stable]
+
+        norm_mag = np.linalg.norm(normals_material, axis=1)
+        bad_normals = norm_mag < 1.0e-12
+        if np.any(bad_normals):
+            normals_material[bad_normals] = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+            norm_mag = np.linalg.norm(normals_material, axis=1)
+        normals_material /= np.maximum(norm_mag, 1.0e-12)[:, None]
+
+        if self._is_watertight:
+            try:
+                occupancy = self._scene.compute_occupancy(
+                    q_tensor, nsamples=int(self._OCCUPANCY_NSAMPLES)
+                ).numpy()
+            except TypeError:
+                occupancy = self._scene.compute_occupancy(q_tensor).numpy()
+
+            inside = occupancy > 0.5
+            inside = inside & (unsigned_distances >= self._EPS_SURFACE)
+            sign = np.where(inside, -1.0, 1.0)
+            signed_distances = unsigned_distances * sign
+            normals_material = normals_material * sign[:, None]
+        else:
+            signed_distances = unsigned_distances
 
         closest_world = (
             r_world_from_mesh @ closest_material.T
         ).T + self.position_collection[:, 0]
         normals_world = (r_world_from_mesh @ normals_material.T).T
-        distances = np.linalg.norm(query_pts - closest_world, axis=1)
+        distances = signed_distances
 
         return closest_world, distances, normals_world

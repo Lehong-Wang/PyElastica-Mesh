@@ -197,8 +197,10 @@ Do not wrap citations across lines in the middle of a single citation. Keep each
 
 ### Forbidden citation tokens
 This skill must **never** output tool-style citation markers or special tokens such as:
-- ``
-- or any other non-ASCII citation wrappers
+- ChatGPT-style wrapper glyphs (for example the ornate `cite` markers that show up as boxy Unicode brackets); strip them entirely.
+- Any other non-ASCII citation wrappers or characters in citations.
+
+**ASCII-only check:** Before sending a response, scan citations for any non-ASCII glyphs and replace them with the plain ASCII format `path/to/file.ext :: SymbolName [Lstart-Lend]`.
 
 If you see such tokens in draft output, replace them with the plain-text citation format above.
 

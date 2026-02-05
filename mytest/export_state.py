@@ -27,14 +27,14 @@ def rod_mesh_collision(
 
     simulator = RodMeshSim()
 
-    n_elem = 20
+    n_elem = 50
     rod = ea.CosseratRod.straight_rod(
         n_elements=n_elem,
         start=np.array([-0.0, 0.0, 0.8]),
         direction=np.array([1.0, 0.0, 0.0]),
         normal=np.array([0.0, 1.0, 0.0]),
         base_length=1.5,
-        base_radius=0.005,
+        base_radius=0.05,
         density=5000.0,
         youngs_modulus=1e6,
         shear_modulus=1e6 / (2.0 * 1.5),
@@ -48,9 +48,10 @@ def rod_mesh_collision(
     )
 
     mesh = ea.Mesh("mytest/bunny_low_10_center.stl")
-    # mesh = ea.Mesh("mytest/cube_tight.stl")
-    density_mesh = 10.0
+    # mesh = ea.Mesh("mytest/bunny.stl")
+    density_mesh = 1000.0
     volume = mesh.compute_volume()
+    print(volume)
     inertia = mesh.compute_inertia_tensor(density=density_mesh)
     mesh_body = ea.MeshRigidBody(
         mesh=mesh,
@@ -73,7 +74,7 @@ def rod_mesh_collision(
     )
 
     simulator.detect_contact_between(rod, mesh_body).using(
-        ea.RodMeshContact, k=1e4, nu=5.0
+        ea.RodMeshContact, k=1e6, nu=10.0, mesh_frozen=True
     )
 
     collector_store: dict[str, object] = {}
@@ -167,9 +168,9 @@ def rod_mesh_collision(
 
 if __name__ == "__main__":
     rod_mesh_collision(
-        final_time=5.0,
+        final_time=2.0,
         velocity_damping=5e-2,
-        dt=3.0e-5,
+        dt=1.0e-5,
         output="mesh_rod_collision.mp4",
         render_speed=1.0,
         render_fps=None,

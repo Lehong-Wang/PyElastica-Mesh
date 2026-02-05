@@ -45,7 +45,7 @@ Math / Algorithm Notes
 - Mesh inertia: divergence-theorem integration of tetrahedra if watertight; OBB analytic inertia otherwise, rotated to world with COM shift. elastica/mesh/mesh_initializer.py :: Mesh.compute_inertia_tensor [L122–199]
 
 Stability / Performance / Pitfalls
-- Mesh centering: recenter_to_com defaults False; if STL origin not at COM, inertia/torques and contact normals will be biased—prefer recentering or providing pre-centered meshes. elastica/mesh/mesh_initializer.py :: Mesh.__init__ [L32–87]
+- Mesh centering: loader no longer recenters; meshes must be provided COM-centered or downstream mass properties/contact will be biased. elastica/mesh/mesh_initializer.py :: Mesh.__init__ [L32–87]
 - Watertightness: non-watertight meshes fall back to OBB volume/COM/inertia (can overestimate slender shapes); warnings issued. elastica/mesh/mesh_initializer.py :: Mesh.__init__ [L55–63]; compute_volume [L88–103]
 - Contact timestep: penalty contact (k, nu) plus friction can require small dt to avoid chatter; see stable example using dt=3e-5, k=1e4, nu=5e-2 with damping. examples/MeshCase/mesh_rod_collision_stable.py :: rod_mesh_collision [L15–207]
 - External loads clearing: after each step, external_forces/torques zeroed; persistent loads must be registered as modules, not one-off assignments. elastica/timestepper/symplectic_steppers.py :: SymplecticStepperMixin.do_step [L128–134]
