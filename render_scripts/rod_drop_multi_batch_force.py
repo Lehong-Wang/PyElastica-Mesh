@@ -174,7 +174,13 @@ def run_multi_rod_drop(
         impulse_vectors.append(impulse_vec)
         impulse_steps.append(steps)
 
-    plane = ea.Plane(plane_origin=np.zeros(3), plane_normal=np.array([0.0, 0.0, 1.0]))
+    # plane = ea.Plane(plane_origin=np.zeros(3), plane_normal=np.array([0.0, 0.0, 1.0]))
+    mesh = ea.Mesh(
+        "mytest/plane_tight.stl",
+    )
+    plane = ea.MeshRigidBody(
+        mesh=mesh,
+    )
     simulator.append(plane)
 
     static_mu = np.array([friction_coefficient * 2.0] * 3)
@@ -204,8 +210,14 @@ def run_multi_rod_drop(
             time_step=dt,
         )
 
+        # simulator.detect_contact_between(rod, plane).using(
+        #     ea.RodPlaneContact, k=contact_k, nu=contact_nu
+        # )
         simulator.detect_contact_between(rod, plane).using(
-            ea.RodPlaneContact, k=contact_k, nu=contact_nu
+            ea.RodMeshContact,
+            k=contact_k,
+            nu=contact_nu,
+            mesh_frozen=True,
         )
 
         simulator.detect_contact_between(rod, rod).using(
@@ -515,7 +527,7 @@ if __name__ == "__main__":
     results = run_multi_rod_drop_batch(
         n_runs=50,
         master_seed=123,  # controls seed_arr + YM/radius sampling
-        output_name="rod_drop_multi_8",
+        output_name="rod_drop_multi_4",
         final_time=1.5,
         dt=1.0e-5,
         damping_constant=5e-2,
@@ -524,7 +536,7 @@ if __name__ == "__main__":
         friction_coefficient=1.5,
         height_gap=0.2,
         output_interval=0.05,
-        num_rods=8,
+        num_rods=4,
         save_full_for_first_k=3,  # first 3 => full npz + full video
         radius_choices=(0.001, 0.003, 0.005),
         youngs_modulus_low=5e5,

@@ -163,13 +163,22 @@ def run_hang_with_sweep_batch(
 
     pos_last_arr = np.stack(pos_last_list, axis=0)  # (n_runs*2, num_rods, 3, n_nodes); even=mid, odd=final
     dir_last_arr = np.stack(dir_last_list, axis=0)  # (n_runs*2, num_rods, 3, 3, n_elems)
-    impulse_nodes_arr = np.stack(impulse_nodes_list, axis=0)
-    impulse_vectors_arr = np.stack(impulse_vectors_list, axis=0)
-    impulse_steps_arr = np.stack(impulse_steps_list, axis=0)
-    radius_arr = np.stack(radius_list, axis=0)
-    ym_arr = np.stack(ym_list, axis=0)
-    hanging_counts_arr = np.asarray(hanging_counts, dtype=int)
-    sweep_counts_arr = np.asarray(sweep_counts, dtype=int)
+    # impulse_nodes_arr = np.stack(impulse_nodes_list, axis=0)
+    # impulse_vectors_arr = np.stack(impulse_vectors_list, axis=0)
+    # impulse_steps_arr = np.stack(impulse_steps_list, axis=0)
+    # radius_arr = np.stack(radius_list, axis=0)
+    # ym_arr = np.stack(ym_list, axis=0)
+    # hanging_counts_arr = np.asarray(hanging_counts, dtype=int)
+    # sweep_counts_arr = np.asarray(sweep_counts, dtype=int)
+    rep2 = lambda x: np.repeat(np.asarray(x), 2, axis=0)
+
+    impulse_nodes_arr   = rep2(np.stack(impulse_nodes_list,   0))
+    impulse_vectors_arr = rep2(np.stack(impulse_vectors_list, 0))
+    impulse_steps_arr   = rep2(np.stack(impulse_steps_list,   0))
+    radius_arr          = rep2(np.stack(radius_list,          0))
+    ym_arr              = rep2(np.stack(ym_list,              0))
+    hanging_counts_arr  = rep2(np.asarray(hanging_counts, int))
+    sweep_counts_arr    = rep2(np.asarray(sweep_counts,   int))
 
     batch_npz_path = output_dir / f"{output_name}_all_runs_last_frames.npz"
     assert time_arr_ref is not None
@@ -216,7 +225,7 @@ if __name__ == "__main__":
         output_name="rod_hang_sweep",
         final_time=2.0,
         dt=2.0e-5,
-        total_rods=4,
+        total_rods=8,
     )
     print(
         f"Saved batch npz to {results['batch_npz_path']} "
