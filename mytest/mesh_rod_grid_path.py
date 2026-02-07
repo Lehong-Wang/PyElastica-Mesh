@@ -141,8 +141,8 @@ def mesh_rod_grid_path_sim(
     mesh = ea.Mesh(
         "mytest/grid_tight.stl",
     )
-    density_mesh = 1.0
-    volume = 1.0
+    density_mesh = 10000.0
+    volume = 1000.0
     inertia = mesh.compute_inertia_tensor(density=density_mesh)
     mesh_body = ea.MeshRigidBody(
         mesh=mesh,
@@ -156,7 +156,7 @@ def mesh_rod_grid_path_sim(
         ea.RodMeshContact,
         k=1e4,
         nu=5.0,
-        mesh_frozen=True,
+        # mesh_frozen=True,
     )
 
     collector: dict[str, object] = {}

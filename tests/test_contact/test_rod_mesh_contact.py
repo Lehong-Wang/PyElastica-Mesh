@@ -5,6 +5,7 @@ from numpy.testing import assert_allclose
 from elastica.mesh import Mesh
 from elastica.rigidbody.mesh_rigid_body import MeshRigidBody
 from elastica.contact_forces import RodMeshContact
+from elastica._contact_functions import _calculate_contact_forces_rod_mesh
 
 
 def _centered_box(width: float, height: float, depth: float):
@@ -82,3 +83,49 @@ def test_frozen_mesh_uses_zero_velocity():
     assert_allclose(
         mesh_fast.external_torques, np.zeros_like(mesh_fast.external_torques)
     )
+
+
+def test_mesh_contact_uses_world_frame_angular_velocity_for_point_velocity():
+    closest_points = np.array([[0.0, 1.0, 0.0]], dtype=np.float64)
+    contact_distances = np.array([0.0], dtype=np.float64)
+    contact_normals = np.array([[0.0, 0.0, 1.0]], dtype=np.float64)
+
+    rod_element_positions = np.array([[0.0], [1.0], [0.0]], dtype=np.float64)
+    rod_velocity_collection = np.zeros((3, 2), dtype=np.float64)
+    rod_radii = np.array([1.0], dtype=np.float64)
+    rod_external_forces = np.zeros((3, 2), dtype=np.float64)
+
+    mesh_position = np.zeros(3, dtype=np.float64)
+    mesh_velocity = np.zeros(3, dtype=np.float64)
+    mesh_angular_velocity = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    mesh_external_forces = np.zeros((3, 1), dtype=np.float64)
+    mesh_external_torques = np.zeros((3, 1), dtype=np.float64)
+
+    # world->mesh rotation: +90 deg about y
+    mesh_director = np.array(
+        [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]], dtype=np.float64
+    )
+
+    _calculate_contact_forces_rod_mesh(
+        closest_points,
+        contact_distances,
+        contact_normals,
+        rod_element_positions,
+        rod_velocity_collection,
+        rod_radii,
+        rod_external_forces,
+        mesh_position,
+        mesh_velocity,
+        mesh_angular_velocity,
+        mesh_external_forces,
+        mesh_external_torques,
+        mesh_director,
+        False,
+        np.float64(0.0),  # k
+        np.float64(1.0),  # nu
+        np.float64(0.0),
+        np.float64(0.0),
+    )
+
+    rod_force_sum = rod_external_forces.sum(axis=1)
+    assert_allclose(rod_force_sum, np.array([0.0, 0.0, -1.0]), atol=1e-12)

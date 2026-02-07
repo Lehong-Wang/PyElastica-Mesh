@@ -104,11 +104,16 @@ class Mesh:
         com: NDArray[np.float64] | None = None,
     ) -> NDArray[np.float64]:
         """
-        Compute 3x3 inertia tensor about the provided COM (or the mesh COM if
-        not specified). Falls back to oriented bounding box inertia if mesh is
-        non-watertight or degenerate.
+        Compute 3x3 inertia tensor about the provided COM. If COM is not
+        specified, the origin is assumed to be the COM.
+
+        Falls back to oriented bounding box inertia if mesh is non-watertight
+        or degenerate.
         """
-        com_target = np.asarray(com, dtype=np.float64) if com is not None else None
+        if com is None:
+            com_target = np.zeros(3, dtype=np.float64)
+        else:
+            com_target = np.asarray(com, dtype=np.float64)
         if self.is_watertight:
             v0 = self.vertices[self.triangles[:, 0]]
             v1 = self.vertices[self.triangles[:, 1]]
@@ -119,10 +124,6 @@ class Mesh:
             volume = abs(total_signed_vol)
             if volume > _EPS:
                 sign = 1.0 if total_signed_vol >= 0.0 else -1.0
-                if com_target is None:
-                    com_target = (signed_vol[:, None] * (v0 + v1 + v2)).sum(axis=0) / (
-                        4.0 * total_signed_vol
-                    )
                 # second moment matrix S = ∫ r r^T dV over the mesh
                 outer_v0 = np.einsum("ni,nj->nij", v0, v0)
                 outer_v1 = np.einsum("ni,nj->nij", v1, v1)
@@ -170,7 +171,7 @@ class Mesh:
         R = self._obb_rotation()
         I_world = R @ I_local @ R.T
         com_world = np.asarray(self.obb.center, dtype=np.float64)
-        com_vec = com_target if com_target is not None else com_world
+        com_vec = com_target
         delta = com_vec - com_world
         shift = mass * (
             np.dot(delta, delta) * np.eye(3, dtype=np.float64) - np.outer(delta, delta)

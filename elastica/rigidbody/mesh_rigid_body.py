@@ -18,10 +18,9 @@ class MeshRigidBody(RigidBodyBase):
 
     Notes
     -----
-    - Prefer passing an `elastica.mesh.Mesh` instance so geometry is COM-centered
-      and mass properties are consistent.
-    - If providing a raw Open3D TriangleMesh, it must already be centered at its
-      COM in the material frame and associated mass properties must match.
+    - Geometry is assumed to be COM-centered in the material frame. This class
+      does not estimate or recenter COM automatically.
+    - If `center_of_mass` is omitted, world COM is initialized at the origin.
     """
 
     # Contact probe tolerances (mirrors mytest/contact_test.py Option B)
@@ -61,10 +60,12 @@ class MeshRigidBody(RigidBodyBase):
         if volume is None:
             volume = mesh.compute_volume()
         if center_of_mass is None:
-            center_of_mass = mesh.compute_center_of_mass()
+            # Strict assumption: material-frame COM is already at origin.
+            center_of_mass = np.zeros(3, dtype=np.float64)
         if mass_second_moment_of_inertia is None:
+            # Compute inertia about the provided/assumed COM at origin.
             mass_second_moment_of_inertia = mesh.compute_inertia_tensor(
-                density=density
+                density=density, com=np.zeros(3, dtype=np.float64)
             )
 
         self.density = np.float64(density)

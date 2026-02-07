@@ -887,8 +887,11 @@ def _calculate_contact_forces_rod_mesh(
         if mesh_frozen:
             mesh_point_velocity = np.zeros(3)
         else:
+            # omega_collection is body/material-frame; convert to world frame
+            # before computing v = v_com + omega x r with world-space moment_arm.
+            mesh_angular_velocity_world = mesh_director.T @ mesh_angular_velocity
             mesh_point_velocity = mesh_velocity + np.cross(
-                mesh_angular_velocity, moment_arm
+                mesh_angular_velocity_world, moment_arm
             )
         rod_avg_velocity = 0.5 * (
             rod_velocity_collection[..., i] + rod_velocity_collection[..., i + 1]

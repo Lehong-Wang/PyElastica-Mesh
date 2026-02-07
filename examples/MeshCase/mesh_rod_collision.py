@@ -45,7 +45,7 @@ def rod_mesh_collision(
         constrained_director_idx=(0,),
     )
 
-    mesh = ea.Mesh("mytest/bunny_low_10.stl")
+    mesh = ea.Mesh("mytest/bunny_low_10_center.stl")
     # mesh = ea.Mesh("mytest/cube_tight.stl")
     density_mesh = 10.0
     volume = mesh.compute_volume()
