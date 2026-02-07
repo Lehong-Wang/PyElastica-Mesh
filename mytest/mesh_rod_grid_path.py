@@ -27,7 +27,7 @@ WAYPOINTS = np.array(
         (0.0, -1.0, 0.5),
         (-1.0, -1.0, 0.5),
         (0.0, 0.0, 0.5),
-        (-1.0, 0.5, 0.2),
+        (-1.0, 0.3, 0.2),
         (-1.0, 1.0, 0.2),
     ],
     dtype=np.float64,
@@ -81,10 +81,10 @@ def mesh_rod_grid_path_sim(
     dt: float = 1.0e-5,
     rod_length: float = 2.0,
     n_elem: int = 40,
-    speed: float = 1.0,
+    speed: float = 1.5,
     youngs_modulus: float = 1.0e7,
     output: str = "mesh_rod_grid_path.mp4",
-    render_fps: int | None = 50,
+    render_fps: int | None = 100,
     render_speed: float = 1.0,
 ):
     class RodMeshSim(

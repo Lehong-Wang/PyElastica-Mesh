@@ -30,7 +30,7 @@ def rod_mesh_collision(
     n_elem = 50
     rod = ea.CosseratRod.straight_rod(
         n_elements=n_elem,
-        start=np.array([-0.0, 0.0, 0.8]),
+        start=np.array([-0.0, -0.1, 0.8]),
         direction=np.array([1.0, 0.0, 0.0]),
         normal=np.array([0.0, 1.0, 0.0]),
         base_length=1.5,
@@ -74,7 +74,8 @@ def rod_mesh_collision(
     )
 
     simulator.detect_contact_between(rod, mesh_body).using(
-        ea.RodMeshContact, k=1e6, nu=10.0, mesh_frozen=True
+        # ea.RodMeshContact, k=1e6, nu=10.0, mesh_frozen=True
+        ea.RodMeshContact, k=1e6, nu=10.0
     )
 
     collector_store: dict[str, object] = {}
