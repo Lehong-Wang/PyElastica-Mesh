@@ -1,0 +1,4 @@
+[shell_environment_policy]
+inherit = "none"
+set = { PATH = ".venv/bin:/usr/local/bin:/usr/bin:/bin" }
+include_only = ["PATH", "HOME"]

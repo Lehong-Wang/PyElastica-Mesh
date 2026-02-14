@@ -61,21 +61,12 @@ def test_mesh_non_watertight_warning_and_fallback():
     assert_allclose(np.diag(inertia), expected_inertia_diag, rtol=1e-6, atol=1e-12)
 
 
-def test_mesh_recenter_true_centers_geometry():
+def test_mesh_loader_leaves_geometry_unchanged():
     box = _make_centered_box(1.0, 1.0, 1.0)
-    box.translate(np.array([1.0, -2.0, 0.5]))
-    mesh = Mesh(box, recenter_to_com=True)
+    shift = np.array([1.0, -2.0, 0.5])
+    box.translate(shift)
+    mesh = Mesh(box)
 
     com_after = mesh.compute_center_of_mass()
-    assert_allclose(com_after, np.zeros(3), atol=1e-12)
-    assert_allclose(mesh.vertices.mean(axis=0), np.zeros(3), atol=1e-12)
-
-
-def test_mesh_recenter_false_leaves_geometry_untouched():
-    box = _make_centered_box(1.0, 1.0, 1.0)
-    box.translate(np.array([1.0, -2.0, 0.5]))
-    mesh = Mesh(box, recenter_to_com=False)
-
-    com_after = mesh.compute_center_of_mass()
-    assert_allclose(com_after, np.array([1.0, -2.0, 0.5]), atol=1e-12)
-    assert_allclose(mesh.vertices.mean(axis=0), np.array([1.0, -2.0, 0.5]), atol=1e-12)
+    assert_allclose(com_after, shift, atol=1e-12)
+    assert_allclose(mesh.vertices.mean(axis=0), shift, atol=1e-12)

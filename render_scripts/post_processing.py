@@ -54,15 +54,37 @@ def _compute_render_indices(
 ) -> tuple[int, list[int]]:
     if n_frames == 0:
         return DEFAULT_FPS, []
+    if speed <= 0.0:
+        raise ValueError(f"speed must be > 0.0, got {speed}.")
     times_arr = None if times is None or len(times) == 0 else np.asarray(times)
     default_fps = DEFAULT_FPS if fps is None else fps
     if times_arr is None or len(times_arr) < 2:
         return default_fps, list(range(n_frames))
     dt = float(np.median(np.diff(times_arr)))
-    fps_out = fps if fps is not None else max(1, int(round(1.0 / (dt * speed))))
+    fps_out = default_fps if fps is not None else max(1, int(round(1.0 / (dt * speed))))
     total_time = float(times_arr[-1] - times_arr[0])
     if total_time <= 0.0:
         return fps_out, list(range(n_frames))
+
+    # If fps is explicitly set, generate exactly that playback cadence and
+    # map each render timestamp to the nearest simulation frame (duplicates allowed).
+    # This preserves the requested fps and video duration ~= total_time / speed.
+    if fps is not None:
+        render_duration = total_time / speed
+        n_out = max(1, int(round(render_duration * fps_out)))
+        t0 = float(times_arr[0])
+        t_render = t0 + (np.arange(n_out, dtype=float) / fps_out) * speed
+        t_render = np.clip(t_render, t0, float(times_arr[-1]))
+
+        idx_right = np.searchsorted(times_arr, t_render, side="left")
+        idx_right = np.clip(idx_right, 0, n_frames - 1)
+        idx_left = np.clip(idx_right - 1, 0, n_frames - 1)
+
+        dt_left = np.abs(t_render - times_arr[idx_left])
+        dt_right = np.abs(times_arr[idx_right] - t_render)
+        indices = np.where(dt_right < dt_left, idx_right, idx_left).astype(int)
+        return fps_out, indices.tolist()
+
     target = max(2, int(round((total_time / speed) * fps_out)))
     target = min(target, n_frames)
     indices = np.linspace(0, n_frames - 1, num=target, dtype=int)
@@ -306,8 +328,19 @@ def plot_rods_multiview(
     colors: Sequence[str] | None = None,
     linewidth: float = 2.0,
     node_size: float = 6.0,
+    force_origins: np.ndarray | None = None,
+    force_vectors: np.ndarray | None = None,
+    force_scale: float = 1.0,
+    force_color: str = "crimson",
+    force_label: str = "Force",
+    show_force_magnitude: bool = True,
 ):
-    """Four-view (3D + front/right/top) animation for rods."""
+    """Four-view (3D + front/right/top) animation for rods.
+
+    Optional force overlay:
+    - force_origins: (n_frames, 3)
+    - force_vectors: (n_frames, 3)
+    """
 
     rod_positions = np.asarray(rod_positions)
     if rod_positions.ndim == 3:
@@ -315,6 +348,25 @@ def plot_rods_multiview(
     times, arrs = _truncate_to_valid_prefix(times, rod_positions, label="rod_positions")
     rod_positions = arrs[0] if arrs else rod_positions
     n_frames, n_rods = rod_positions.shape[:2]
+
+    if (force_origins is None) != (force_vectors is None):
+        raise ValueError("force_origins and force_vectors must be provided together.")
+    force_overlay = force_origins is not None and force_vectors is not None
+    if force_overlay:
+        force_origins = np.asarray(force_origins, dtype=float)
+        force_vectors = np.asarray(force_vectors, dtype=float)
+        if force_origins.ndim == 3 and force_origins.shape[-1] == 1:
+            force_origins = force_origins[..., 0]
+        if force_vectors.ndim == 3 and force_vectors.shape[-1] == 1:
+            force_vectors = force_vectors[..., 0]
+        if force_origins.shape != (n_frames, 3):
+            raise ValueError(
+                f"force_origins must have shape (n_frames, 3), got {force_origins.shape}"
+            )
+        if force_vectors.shape != (n_frames, 3):
+            raise ValueError(
+                f"force_vectors must have shape (n_frames, 3), got {force_vectors.shape}"
+            )
 
     fps_used, frame_indices = _compute_render_indices(times, n_frames, fps, speed)
     if len(frame_indices) == 0:
@@ -358,10 +410,6 @@ def plot_rods_multiview(
     plane_surfaces = [_add_plane(ax3d, bounds, z=z) for z in plane_zs]
     plane_front = [ax_front.axhline(z, color="lightgray", linestyle="--", linewidth=1) for z in plane_zs]
     plane_right = [ax_right.axhline(z, color="lightgray", linestyle="--", linewidth=1) for z in plane_zs]
-
-    plane_surfaces = [_add_plane(ax3d, bounds, z=z) for z in plane_zs]
-    plane_front = [ax_front.axhline(z, color="lightgray", linestyle="--", linewidth=1) for z in plane_zs]
-    plane_right = [ax_right.axhline(z, color="lightgray", linestyle="--", linewidth=1) for z in plane_zs]
     # Top view does not show horizontal planes.
 
     rod3d_lines, rod3d_scats = [], []
@@ -376,6 +424,54 @@ def plot_rods_multiview(
         (lt,) = ax_top.plot(first[r, 0], first[r, 1], "-", color=color)
         rod3d_lines.append(l3d); rod3d_scats.append(scat3d)
         rod_front_lines.append(lf); rod_right_lines.append(lr); rod_top_lines.append(lt)
+
+    force_line_3d = None
+    force_line_front = None
+    force_line_right = None
+    force_line_top = None
+    force_text = None
+    if force_overlay:
+        assert force_origins is not None
+        assert force_vectors is not None
+        f0 = frame_indices[0]
+        origin0 = force_origins[f0]
+        tip0 = origin0 + force_scale * force_vectors[f0]
+        (force_line_3d,) = ax3d.plot(
+            [origin0[0], tip0[0]],
+            [origin0[1], tip0[1]],
+            [origin0[2], tip0[2]],
+            color=force_color,
+            linewidth=2.5,
+            label=force_label,
+        )
+        (force_line_front,) = ax_front.plot(
+            [origin0[1], tip0[1]],
+            [origin0[2], tip0[2]],
+            color=force_color,
+            linewidth=2.2,
+        )
+        (force_line_right,) = ax_right.plot(
+            [origin0[0], tip0[0]],
+            [origin0[2], tip0[2]],
+            color=force_color,
+            linewidth=2.2,
+        )
+        (force_line_top,) = ax_top.plot(
+            [origin0[0], tip0[0]],
+            [origin0[1], tip0[1]],
+            color=force_color,
+            linewidth=2.2,
+        )
+        if show_force_magnitude:
+            force_text = fig.text(
+                0.5,
+                0.985,
+                f"{force_label} |F| = {np.linalg.norm(force_vectors[f0]):.3e}",
+                ha="center",
+                va="top",
+                color=force_color,
+            )
+
     ax3d.legend(loc="upper right")
 
     writer = animation.writers["ffmpeg"](fps=fps_used)
@@ -391,6 +487,27 @@ def plot_rods_multiview(
                 rod_front_lines[r].set_xdata(xyz[1]); rod_front_lines[r].set_ydata(xyz[2])
                 rod_right_lines[r].set_xdata(xyz[0]); rod_right_lines[r].set_ydata(xyz[2])
                 rod_top_lines[r].set_xdata(xyz[0]); rod_top_lines[r].set_ydata(xyz[1])
+            if force_overlay:
+                assert force_origins is not None
+                assert force_vectors is not None
+                assert force_line_3d is not None
+                assert force_line_front is not None
+                assert force_line_right is not None
+                assert force_line_top is not None
+                origin = force_origins[idx]
+                tip = origin + force_scale * force_vectors[idx]
+                force_line_3d.set_data([origin[0], tip[0]], [origin[1], tip[1]])
+                force_line_3d.set_3d_properties([origin[2], tip[2]])
+                force_line_front.set_xdata([origin[1], tip[1]])
+                force_line_front.set_ydata([origin[2], tip[2]])
+                force_line_right.set_xdata([origin[0], tip[0]])
+                force_line_right.set_ydata([origin[2], tip[2]])
+                force_line_top.set_xdata([origin[0], tip[0]])
+                force_line_top.set_ydata([origin[1], tip[1]])
+                if force_text is not None:
+                    force_text.set_text(
+                        f"{force_label} |F| = {np.linalg.norm(force_vectors[idx]):.3e}"
+                    )
             writer.grab_frame()
     plt.close(fig)
 

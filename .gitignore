@@ -237,3 +237,5 @@ outcmaes/*
 
 # csv files
 *.csv
+
+output

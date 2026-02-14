@@ -91,9 +91,7 @@ def main() -> None:
     raw_triangles = np.asarray(raw_mesh.triangles, dtype=np.int32)
     raw_obb = raw_mesh.get_oriented_bounding_box()
     raw_watertight = bool(raw_mesh.is_watertight())
-    raw_com = Mesh._compute_center_of_mass_from_arrays(
-        raw_vertices, raw_triangles, raw_watertight, raw_obb
-    )
+    raw_com = Mesh(raw_mesh, warn_if_not_watertight=False).compute_center_of_mass()
 
     print("\n=== Raw mesh ===")
     print(f"vertices: {len(raw_vertices)}, triangles: {len(raw_triangles)}")

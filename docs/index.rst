@@ -76,6 +76,7 @@ If you are interested to contribute, please read `contribution-guide`_ first.
    :maxdepth: 2
    :caption: Advanced Guide
 
+   advanced/CoSimulation.md
    advanced/LocalizedForceTorque.md
    advanced/PackageDesign.md
 

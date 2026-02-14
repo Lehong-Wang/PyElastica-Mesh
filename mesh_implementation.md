@@ -221,7 +221,6 @@ class Mesh:
     def __init__(
         self,
         mesh_or_path: str | o3d.geometry.TriangleMesh,
-        recenter_to_com: bool = True,
         warn_if_not_watertight: bool = True,
     ):
         """Load mesh and preprocess"""
@@ -243,13 +242,6 @@ class Mesh:
         self.n_triangles = len(self.triangles)
         self.obb = self.mesh.get_oriented_bounding_box()
 
-        self.com_offset = np.zeros(3, dtype=np.float64)
-        if recenter_to_com:
-            com = self.compute_center_of_mass()
-            self.mesh.translate(-com)
-            self.vertices = np.asarray(self.mesh.vertices)
-            self.com_offset = com
-
     def compute_volume(self) -> float:
         """Compute mesh volume using divergence theorem or OBB fallback"""
         # If not watertight, use OBB volume
@@ -270,8 +262,7 @@ class Mesh:
 ```
 
 **Notes**:
-- `recenter_to_com` defaults to `True` but can be disabled to preserve original mesh coordinates.
-- `com_offset` records the applied translation for downstream use if needed.
+- Loader assumes meshes are already COM-centered; geometry is not translated.
 
 **Files to create**:
 - `elastica/mesh/__init__.py`
@@ -325,7 +316,6 @@ class MeshRigidBody(RigidBodyBase):
         super().__init__()
 
         # Store mesh geometry in material frame (never modified)
-        # Mesh preprocessing handles recentering to COM when requested.
         self._mesh_material_frame = mesh.mesh  # o3d.geometry.TriangleMesh
         self._vertices_material = np.asarray(mesh.mesh.vertices).astype(np.float32)
         self._triangles_indices = np.asarray(mesh.mesh.triangles).astype(np.uint32)

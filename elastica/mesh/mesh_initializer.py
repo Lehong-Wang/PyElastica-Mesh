@@ -20,19 +20,16 @@ class Mesh:
 
     Notes
     -----
-    - If ``recenter_to_com=True``, the mesh is translated so its COM is
-      at the origin in the material frame. This is recommended for correctness.
-    - If ``recenter_to_com=False`` (default), the mesh geometry is left untouched and the
-      caller is responsible for ensuring the input origin coincides with the COM.
-      Volume/COM/inertia are computed in that provided frame.
+    - The loader assumes the provided mesh is already centered at its COM in the
+      material frame. Geometry is left untouched; computed properties reflect the
+      input coordinates.
     - When passing a raw Open3D TriangleMesh directly, ensure it is already
-      COM-centered if ``recenter_to_com=False`` and that its normals are valid.
+      COM-centered and that its normals are valid.
     """
 
     def __init__(
         self,
         mesh_or_path: str | o3d.geometry.TriangleMesh,
-        recenter_to_com: bool = False,
         warn_if_not_watertight: bool = True,
     ) -> None:
         if isinstance(mesh_or_path, str):
@@ -66,24 +63,6 @@ class Mesh:
         self.triangle_normals = np.asarray(self.mesh.triangle_normals, dtype=np.float64)
         self.n_triangles = int(self.triangles.shape[0])
         self.obb = self.mesh.get_oriented_bounding_box()
-
-        # Center geometry at its COM once unless the caller opts out.
-        if recenter_to_com:
-            raw_com = self._compute_center_of_mass_from_arrays(
-                self.vertices, self.triangles, self.is_watertight, self.obb
-            )
-            # print(f"Recentering mesh to COM: {raw_com}")
-            self.mesh.translate(-raw_com)
-            self.mesh.compute_vertex_normals()
-            self.mesh.compute_triangle_normals()
-
-            # Refresh arrays after centering.
-            self.vertices = np.asarray(self.mesh.vertices, dtype=np.float64)
-            self.triangles = np.asarray(self.mesh.triangles, dtype=np.int32)
-            self.triangle_normals = np.asarray(
-                self.mesh.triangle_normals, dtype=np.float64
-            )
-            self.obb = self.mesh.get_oriented_bounding_box()
 
     def compute_volume(self) -> float:
         """
@@ -125,11 +104,16 @@ class Mesh:
         com: NDArray[np.float64] | None = None,
     ) -> NDArray[np.float64]:
         """
-        Compute 3x3 inertia tensor about the provided COM (or the mesh COM if
-        not specified). Falls back to oriented bounding box inertia if mesh is
-        non-watertight or degenerate.
+        Compute 3x3 inertia tensor about the provided COM. If COM is not
+        specified, the origin is assumed to be the COM.
+
+        Falls back to oriented bounding box inertia if mesh is non-watertight
+        or degenerate.
         """
-        com_target = np.asarray(com, dtype=np.float64) if com is not None else None
+        if com is None:
+            com_target = np.zeros(3, dtype=np.float64)
+        else:
+            com_target = np.asarray(com, dtype=np.float64)
         if self.is_watertight:
             v0 = self.vertices[self.triangles[:, 0]]
             v1 = self.vertices[self.triangles[:, 1]]
@@ -140,10 +124,6 @@ class Mesh:
             volume = abs(total_signed_vol)
             if volume > _EPS:
                 sign = 1.0 if total_signed_vol >= 0.0 else -1.0
-                if com_target is None:
-                    com_target = (signed_vol[:, None] * (v0 + v1 + v2)).sum(axis=0) / (
-                        4.0 * total_signed_vol
-                    )
                 # second moment matrix S = ∫ r r^T dV over the mesh
                 outer_v0 = np.einsum("ni,nj->nij", v0, v0)
                 outer_v1 = np.einsum("ni,nj->nij", v1, v1)
@@ -191,7 +171,7 @@ class Mesh:
         R = self._obb_rotation()
         I_world = R @ I_local @ R.T
         com_world = np.asarray(self.obb.center, dtype=np.float64)
-        com_vec = com_target if com_target is not None else com_world
+        com_vec = com_target
         delta = com_vec - com_world
         shift = mass * (
             np.dot(delta, delta) * np.eye(3, dtype=np.float64) - np.outer(delta, delta)
@@ -204,25 +184,6 @@ class Mesh:
             np.asarray(self.mesh.get_min_bound(), dtype=np.float64),
             np.asarray(self.mesh.get_max_bound(), dtype=np.float64),
         )
-
-    @staticmethod
-    def _compute_center_of_mass_from_arrays(
-        vertices: NDArray[np.float64],
-        triangles: NDArray[np.int32],
-        is_watertight: bool,
-        obb: o3d.geometry.OrientedBoundingBox,
-    ) -> NDArray[np.float64]:
-        if is_watertight and triangles.size > 0:
-            v0 = vertices[triangles[:, 0]]
-            v1 = vertices[triangles[:, 1]]
-            v2 = vertices[triangles[:, 2]]
-            cross = np.cross(v1, v2)
-            signed_vol = np.einsum("ij,ij->i", v0, cross) / 6.0
-            total_signed_vol = signed_vol.sum()
-            if abs(total_signed_vol) > _EPS:
-                com_num = (signed_vol[:, None] * (v0 + v1 + v2)).sum(axis=0)
-                return (com_num / (4.0 * total_signed_vol)).astype(np.float64)
-        return np.asarray(obb.center, dtype=np.float64)
 
     def _obb_rotation(self) -> NDArray[np.float64]:
         """Return the rotation matrix of the oriented bounding box."""

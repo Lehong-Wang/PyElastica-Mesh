@@ -86,3 +86,53 @@
   - Wrapped mesh examples (`mesh_freefall`, `mesh_rod_collision`, `mesh_frozen_contact`) in try/except to render collected diagnostics on failure before re-raising.
 - Validation:
   - Attempted `.venv/bin/python -m pytest tests/test_mesh/test_mesh_initializer.py tests/test_contact/test_rod_mesh_contact.py` → failed (pytest not installed in `.venv`). Pending once pytest available.
+
+## 2026-02-05
+- Removed COM recentring support from `elastica/mesh/mesh_initializer.py`; loader now leaves geometry untouched and assumes inputs are already COM-centered.
+- Simplified mesh initializer API (dropped `recenter_to_com` flag) and updated tests to assert geometry remains unchanged on load.
+- Adjusted helper script `mytest/mesh_com_inspect.py` and design notes in `mesh_implementation.md` to reflect the no-recenter assumption.
+
+## 2026-02-07
+- Co-simulation refactor kickoff:
+  - Read and traced `mytest/cosim_test.py` end-to-end (scene construction, command update cadence, impulse accumulation, mean-force logging, NPZ/plot/render outputs).
+  - Created new `co_sim/` package (without modifying `mytest/cosim_test.py`) and moved co-sim logic into modular units: `models.py`, `engine.py`, `isaac_process.py`, `plotting.py`, and public exports in `co_sim/__init__.py`.
+- Engine/API restructuring:
+  - Consolidated the runtime into `CoSimEngine` with one-rod + one-frame scene construction and a single update entrypoint `update_frame_state(...)` returning net impulse.
+  - Unified frame state application via `FrameStateBuffer.apply_to_system(...)` to avoid split write paths.
+  - Removed redundant command-source wrappers and kept a single sine helper (`sine_frame_state`) in `co_sim/isaac_process.py`.
+- Dummy Isaac driver rewrite:
+  - Added `mytest/cosim_test_isaac_mock.py` as the config-driven script that:
+    - builds initial scene from config/state,
+    - computes sine command each Isaac update,
+    - calls engine update and receives impulse,
+    - saves NPZ, force plots, and optional render video.
+  - Split logic for clarity: loop execution vs save/plot/render routines.
+- Config unification:
+  - Expanded `CoSimConfig` to hold all simulation and demo parameters (timing, rod/frame physical params, command params, output/render params).
+  - Switched demo API to config-only (`run_demo(config: CoSimConfig)`), removing standalone function arguments.
+- Timing model corrections (real simulation time basis):
+  - Removed assumptions that `isaac_dt` must be an integer multiple of `py_dt`.
+  - Implemented duration-based advancing in `CoSimEngine.update_frame_state(...)`.
+  - Decoupled schedules:
+    - command updates by `isaac_dt`,
+    - NPZ sampling by `output_interval`,
+    - render sampling by `1 / render_fps`.
+  - Added explicit metadata keys for sample intervals in saved NPZ files.
+- Runtime bug investigation and fix (user-reported stall near 2.1s):
+  - Reproduced the hang with console output stopping around `time=2.10000` and trace blocked in `stepper.step(...)->synchronize(...)`.
+  - Root cause: floating-point non-progress at update boundary; remaining `dt_step` became one ULP (`~4.44e-16`), so time stopped advancing while loop condition remained true.
+  - Fix in `co_sim/engine.py`:
+    - if remaining time <= time resolution, snap to target time and break,
+    - if a step returns non-increasing time, snap to target time and break.
+- Validation:
+  - Compile checks passed: `python -m compileall co_sim mytest/cosim_test_isaac_mock.py`.
+  - Smoke runs via `.venv/bin/python` completed for:
+    - default settings,
+    - decoupled timing case (`isaac_dt=0.1`, `output_interval=0.01`),
+    - hang-repro case now running through final time after fix.
+  - Short equivalence checks versus `mytest/cosim_test.py` remained close (only floating-point-level differences expected from revised time stepping and decoupled scheduling).
+- Documentation expansion:
+  - Added `docs/advanced/CoSimulation.md` and linked it from `docs/index.rst` under Advanced Guide.
+  - Documented end-to-end usage for both `run_demo(config)` and direct `CoSimEngine` integration.
+  - Added full `CoSimConfig` parameter reference and clarified decoupled timing semantics (`py_dt`, `isaac_dt`, `output_interval`, `render_fps` timelines are independent).
+  - Included NPZ output schema/metadata, troubleshooting notes, and the 2.1s floating-point non-progress root cause/fix.
