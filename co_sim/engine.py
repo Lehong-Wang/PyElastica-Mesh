@@ -43,13 +43,15 @@ class FrameStateBuffer:
         self.omega_world = np.zeros(3)
         self.alpha_world = np.zeros(3)
 
-    def update(self, state: FrameState) -> None:
+    def update(self, state: FrameState, isaac_t: float = 0.0) -> None:
         s = state.validated()
         self.position[...] = s.position
         self.director[...] = s.director
-        self.velocity[...] = s.velocity
+        self.velocity[...] = s.velocity + s.acceleration * isaac_t
+        # self.velocity[...] = s.velocity
         self.acceleration[...] = s.acceleration
-        self.omega_world[...] = s.omega
+        self.omega_world[...] = s.omega + s.alpha * isaac_t
+        # self.omega_world[...] = s.omega
         self.alpha_world[...] = s.alpha
 
     def apply_to_system(self, system) -> None:
@@ -203,6 +205,10 @@ class CoSimEngine:
             time_step=self.py_dt,
         )
 
+        self.sim.add_forcing_to(self.rod).using(
+            ea.GravityForces, acc_gravity=np.array([0.0, 0.0, -9.81])
+        )
+
         rest_rot = get_relative_rotation_two_systems(self.frame, 0, self.rod, 0)
         self.sim.connect(self.frame, self.rod, first_connect_idx=0, second_connect_idx=0).using(
             ea.FixedJoint,
@@ -214,7 +220,7 @@ class CoSimEngine:
         )
 
         self.frame_state = FrameStateBuffer()
-        self.frame_state.update(frame_init)
+        self.frame_state.update(frame_init, isaac_t=0.0)
         self.sim.constrain(self.frame).using(RateOnlyFrameBC, state=self.frame_state)
 
         # Register after joint so synchronize() sees joint loads first, then records+zeros.
@@ -231,10 +237,10 @@ class CoSimEngine:
         self.time = np.float64(0.0)
 
         # Ensure frame state arrays match the supplied initial command exactly.
-        self.apply_command_state(frame_init)
+        self.apply_command_state(frame_init, isaac_t=0.0)
 
-    def apply_command_state(self, state: FrameState) -> None:
-        self.frame_state.update(state)
+    def apply_command_state(self, state: FrameState, isaac_t: float = 0.0) -> None:
+        self.frame_state.update(state, isaac_t=isaac_t)
         self.frame_state.apply_to_system(self.frame)
 
     def snapshot(self) -> SceneSnapshot:
@@ -270,10 +276,9 @@ class CoSimEngine:
         if update_duration <= 0.0:
             raise ValueError(f"duration must be positive, got {update_duration}.")
 
-        self.apply_command_state(frame_state)
-        self.tick_impulse.reset()
-
         start_time = float(self.time)
+        self.apply_command_state(frame_state, isaac_t=start_time)
+        self.tick_impulse.reset()
         target_time = start_time + update_duration
         while float(self.time) < target_time:
             current_time = float(self.time)
