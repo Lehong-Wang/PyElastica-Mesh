@@ -204,8 +204,8 @@ bent_butterfly_rod.py
 timoshenko_beam.py
 sample_prog.py
 
-# Figures and pictures
-*.png
+# # Figures and pictures
+# *.png
 
 # data files
 *.dat
@@ -216,8 +216,8 @@ sample_prog.py
 # txt files
 *.txt
 
-# movie or video file formats
-*.mp4
+# # movie or video file formats
+# *.mp4
 
 # CMA-ES output files
 outcmaes/*
@@ -225,9 +225,9 @@ outcmaes/*
 # line profiling outputs
 *.lprof
 
-# python npy files
-*.npy
-*.npz
+# # python npy files
+# *.npy
+# *.npz
 
 # pickle files
 *.pickle
