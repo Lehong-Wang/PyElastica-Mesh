@@ -175,6 +175,9 @@ def plot_mesh_multiview_animation(
         ax3d.set_xlim(xmin, xmax)
         ax3d.set_ylim(ymin, ymax)
         ax3d.set_zlim(zmin, zmax)
+        # Keep x/y/z on the same physical scale in the 3D pane.
+        if hasattr(ax3d, "set_box_aspect"):
+            ax3d.set_box_aspect((xmax - xmin, ymax - ymin, zmax - zmin))
         for ax, lbls in [
             (ax_front, ("Y", "Z")),
             (ax_right, ("X", "Z")),
