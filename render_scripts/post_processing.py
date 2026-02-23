@@ -142,6 +142,30 @@ def _add_plane(ax, bounds, z=0.0, color="lightgray", alpha=0.25):
     return ax.plot_surface(xx, yy, zz, color=color, alpha=alpha, linewidth=0)
 
 
+def _set_3d_equal_units(ax, bounds):
+    """Make x/y/z use the same unit scale in a 3D axis."""
+    (xmin, xmax), (ymin, ymax), (zmin, zmax) = bounds
+    if hasattr(ax, "set_box_aspect"):
+        xr = max(float(xmax - xmin), 1.0e-12)
+        yr = max(float(ymax - ymin), 1.0e-12)
+        zr = max(float(zmax - zmin), 1.0e-12)
+        ax.set_box_aspect((xr, yr, zr))
+
+
+def _resolve_unique_output_path(path: str | Path) -> Path:
+    """Return a non-conflicting output path by appending _{idx} if needed."""
+    path = Path(path)
+    if not path.exists():
+        return path
+    stem, suffix = path.stem, path.suffix
+    idx = 1
+    while True:
+        candidate = path.with_name(f"{stem}_{idx}{suffix}")
+        if not candidate.exists():
+            return candidate
+        idx += 1
+
+
 def _mesh_to_poly(mesh_o3d, transform=None):
     import open3d as o3d
 
@@ -236,7 +260,7 @@ def plot_rods_video(
     ax.legend(loc="upper right")
 
     writer = animation.writers["ffmpeg"](fps=fps_used)
-    video_path = Path(video_path)
+    video_path = _resolve_unique_output_path(video_path)
     video_path.parent.mkdir(parents=True, exist_ok=True)
     with writer.saving(fig, str(video_path), dpi=200):
         for idx in _frame_iter(frame_indices, "Rendering rods"):
@@ -261,6 +285,10 @@ def plot_rods_multiview(
     colors: Sequence[str] | None = None,
     linewidth: float = 2.0,
     node_size: float = 6.0,
+    track_points: np.ndarray | None = None,
+    track_times: np.ndarray | None = None,
+    track_color: str = "red",
+    track_size: float = 10.0,
     force_origins: np.ndarray | None = None,
     force_vectors: np.ndarray | None = None,
     force_scale: float = 1.0,
@@ -273,12 +301,73 @@ def plot_rods_multiview(
     Optional force overlay:
     - force_origins: (n_frames, 3)
     - force_vectors: (n_frames, 3)
+
+    Optional track points overlay:
+    - track_points: (n_track_frames, n_points, 3) or (n_track_frames, 3, n_points)
+    - track_times: (n_track_frames,), used to time-sync against `times`
     """
 
     rod_positions = np.asarray(rod_positions)
     if rod_positions.ndim == 3:
         rod_positions = rod_positions[:, None, ...]
     n_frames, n_rods = rod_positions.shape[:2]
+    times_arr = None if times is None else np.asarray(times, dtype=float).reshape(-1)
+    if times_arr is not None and times_arr.size != n_frames:
+        raise ValueError(
+            f"times must have length n_frames={n_frames}, got {times_arr.size}"
+        )
+
+    track_overlay = track_points is not None
+    track_arr: np.ndarray | None = None
+    track_times_arr: np.ndarray | None = None
+    track_n_frames = 0
+    if track_overlay:
+        track_arr = np.asarray(track_points, dtype=float)
+        if track_arr.ndim != 3:
+            raise ValueError(
+                "track_points must be 3D with shape (T,N,3) or (T,3,N), "
+                f"got {track_arr.shape}"
+            )
+        if track_arr.shape[1] == 3:
+            track_arr = np.transpose(track_arr, (0, 2, 1))
+        elif track_arr.shape[2] != 3:
+            raise ValueError(
+                "track_points must have coordinates in axis 1 or 2 (size 3), "
+                f"got {track_arr.shape}"
+            )
+        track_n_frames = int(track_arr.shape[0])
+        if track_n_frames < 1:
+            raise ValueError("track_points must contain at least one frame.")
+
+        if track_times is not None:
+            track_times_arr = np.asarray(track_times, dtype=float).reshape(-1)
+            if track_times_arr.size != track_n_frames:
+                raise ValueError(
+                    f"track_times length {track_times_arr.size} does not match "
+                    f"track_points frames {track_n_frames}"
+                )
+        elif times_arr is not None and track_n_frames == n_frames:
+            track_times_arr = times_arr
+
+    def _track_frame_index_for_rod_frame(rod_frame_idx: int) -> int:
+        if not track_overlay:
+            return 0
+        assert track_arr is not None
+        if track_times_arr is not None and times_arr is not None:
+            if track_times_arr.size < 1:
+                return 0
+            # Step-wise sync: hold each NPZ track frame until next NPZ timestamp.
+            idx = int(
+                np.searchsorted(track_times_arr, float(times_arr[rod_frame_idx]), side="right")
+                - 1
+            )
+            return int(np.clip(idx, 0, track_n_frames - 1))
+        if track_n_frames == n_frames:
+            return rod_frame_idx
+        if n_frames <= 1 or track_n_frames <= 1:
+            return 0
+        alpha = float(rod_frame_idx) / float(n_frames - 1)
+        return int(round(alpha * (track_n_frames - 1)))
 
     if (force_origins is None) != (force_vectors is None):
         raise ValueError("force_origins and force_vectors must be provided together.")
@@ -299,12 +388,12 @@ def plot_rods_multiview(
                 f"force_vectors must have shape (n_frames, 3), got {force_vectors.shape}"
             )
 
-    fps_used, frame_indices = _compute_render_indices(times, n_frames, fps, speed)
+    fps_used, frame_indices = _compute_render_indices(times_arr, n_frames, fps, speed)
     if len(frame_indices) == 0:
         return
 
     if bounds is None:
-        bounds = _auto_bounds([rod_positions])
+        bounds = _auto_bounds([rod_positions, track_arr] if track_overlay else [rod_positions])
 
     palette = _color_cycle(n_rods) if colors is None else list(colors)
     plane_zs: list[float]
@@ -327,6 +416,7 @@ def plot_rods_multiview(
     def _setup_axes():
         ax3d.set_xlim(xmin, xmax); ax3d.set_ylim(ymin, ymax); ax3d.set_zlim(zmin, zmax)
         ax3d.set_xlabel("X"); ax3d.set_ylabel("Y"); ax3d.set_zlabel("Z")
+        _set_3d_equal_units(ax3d, bounds)
         for ax, lbls, xl, yl in [
             (ax_front, ("Y", "Z"), (ymin, ymax), (zmin, zmax)),
             (ax_right, ("X", "Z"), (xmin, xmax), (zmin, zmax)),
@@ -354,6 +444,33 @@ def plot_rods_multiview(
         (lt,) = ax_top.plot(first[r, 0], first[r, 1], "-", color=color)
         rod3d_lines.append(l3d); rod3d_scats.append(scat3d)
         rod_front_lines.append(lf); rod_right_lines.append(lr); rod_top_lines.append(lt)
+
+    track_scatter_3d = None
+    track_scatter_front = None
+    track_scatter_right = None
+    track_scatter_top = None
+    if track_overlay:
+        assert track_arr is not None
+        tidx0 = _track_frame_index_for_rod_frame(frame_indices[0])
+        pts0 = track_arr[tidx0]
+        track_scatter_3d = ax3d.scatter(
+            pts0[:, 0],
+            pts0[:, 1],
+            pts0[:, 2],
+            color=track_color,
+            s=track_size,
+            depthshade=False,
+            zorder=10,
+        )
+        track_scatter_front = ax_front.scatter(
+            pts0[:, 1], pts0[:, 2], color=track_color, s=track_size, zorder=10
+        )
+        track_scatter_right = ax_right.scatter(
+            pts0[:, 0], pts0[:, 2], color=track_color, s=track_size, zorder=10
+        )
+        track_scatter_top = ax_top.scatter(
+            pts0[:, 0], pts0[:, 1], color=track_color, s=track_size, zorder=10
+        )
 
     force_line_3d = None
     force_line_front = None
@@ -405,7 +522,7 @@ def plot_rods_multiview(
     ax3d.legend(loc="upper right")
 
     writer = animation.writers["ffmpeg"](fps=fps_used)
-    video_path = Path(video_path)
+    video_path = _resolve_unique_output_path(video_path)
     video_path.parent.mkdir(parents=True, exist_ok=True)
     with writer.saving(fig, str(video_path), dpi=180):
         for idx in _frame_iter(frame_indices, "Rendering rod 4-view"):
@@ -438,6 +555,19 @@ def plot_rods_multiview(
                     force_text.set_text(
                         f"{force_label} |F| = {np.linalg.norm(force_vectors[idx]):.3e}"
                     )
+            if track_overlay:
+                # Update track points last so they stay visually on top.
+                assert track_arr is not None
+                assert track_scatter_3d is not None
+                assert track_scatter_front is not None
+                assert track_scatter_right is not None
+                assert track_scatter_top is not None
+                tidx = _track_frame_index_for_rod_frame(idx)
+                pts = track_arr[tidx]
+                track_scatter_3d._offsets3d = (pts[:, 0], pts[:, 1], pts[:, 2])
+                track_scatter_front.set_offsets(np.column_stack((pts[:, 1], pts[:, 2])))
+                track_scatter_right.set_offsets(np.column_stack((pts[:, 0], pts[:, 2])))
+                track_scatter_top.set_offsets(np.column_stack((pts[:, 0], pts[:, 1])))
             writer.grab_frame()
     plt.close(fig)
 
@@ -527,7 +657,7 @@ def plot_rods_with_mesh(
     ax.add_collection3d(poly)
 
     writer = animation.writers["ffmpeg"](fps=fps_used)
-    video_path = Path(video_path)
+    video_path = _resolve_unique_output_path(video_path)
     video_path.parent.mkdir(parents=True, exist_ok=True)
     with writer.saving(fig, str(video_path), dpi=200):
         for idx in _frame_iter(frame_indices, "Rendering rods+mesh"):
@@ -609,6 +739,7 @@ def plot_rods_with_mesh_multiview(
     def _setup_axes():
         ax3d.set_xlim(xmin, xmax); ax3d.set_ylim(ymin, ymax); ax3d.set_zlim(zmin, zmax)
         ax3d.set_xlabel("X"); ax3d.set_ylabel("Y"); ax3d.set_zlabel("Z")
+        _set_3d_equal_units(ax3d, bounds)
         for ax, lbls, xl, yl in [
             (ax_front, ("Y", "Z"), (ymin, ymax), (zmin, zmax)),
             (ax_right, ("X", "Z"), (xmin, xmax), (zmin, zmax)),
@@ -655,7 +786,7 @@ def plot_rods_with_mesh_multiview(
     ax3d.legend(loc="upper right")
 
     writer = animation.writers["ffmpeg"](fps=fps_used)
-    video_path = Path(video_path)
+    video_path = _resolve_unique_output_path(video_path)
     video_path.parent.mkdir(parents=True, exist_ok=True)
     with writer.saving(fig, str(video_path), dpi=180):
         for idx in _frame_iter(frame_indices, "Rendering 4-view"):
