@@ -277,7 +277,7 @@ class CoSimEngine:
             raise ValueError(f"duration must be positive, got {update_duration}.")
 
         start_time = float(self.time)
-        self.apply_command_state(frame_state, isaac_t=start_time)
+        self.apply_command_state(frame_state, isaac_t=self.isaac_dt)
         self.tick_impulse.reset()
         target_time = start_time + update_duration
         while float(self.time) < target_time:
