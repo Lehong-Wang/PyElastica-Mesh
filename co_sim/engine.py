@@ -159,6 +159,35 @@ class CoSimEngine:
     ):
         pass
 
+    @staticmethod
+    def _resolve_rod_initial_state(
+        config: CoSimConfig,
+        frame_init: FrameState,
+        rod_initial_state: RodInitialState | None,
+    ) -> RodInitialState:
+        theta_raw = config.initial_wire_theta
+        if theta_raw is not None:
+            theta = float(theta_raw)
+            if not np.isfinite(theta):
+                raise ValueError(f"initial_wire_theta must be finite, got {theta}.")
+            c = float(np.cos(theta))
+            s = float(np.sin(theta))
+            return RodInitialState(
+                start=np.asarray(frame_init.position, dtype=float),
+                direction=np.array([c, s, 0.0], dtype=float),
+                normal=np.array([0.0, 0.0, 1.0], dtype=float),
+            ).validated()
+
+        if rod_initial_state is not None:
+            return rod_initial_state.validated()
+
+        # Null theta defaults to frame z-axis, starting at initial frame.
+        return RodInitialState(
+            start=np.asarray(frame_init.position, dtype=float),
+            direction=np.asarray(frame_init.director[2], dtype=float),
+            normal=np.asarray(frame_init.director[0], dtype=float),
+        ).validated()
+
     def __init__(
         self,
         config: CoSimConfig,
@@ -173,16 +202,12 @@ class CoSimEngine:
         if self.isaac_dt <= 0.0:
             raise ValueError(f"isaac_dt must be positive, got {self.isaac_dt}.")
 
-        rod_init = (
-            default_rod_initial_state(config)
-            if rod_initial_state is None
-            else rod_initial_state
-        ).validated()
         frame_init = (
             default_frame_initial_state(config)
             if frame_initial_state is None
             else frame_initial_state
         ).validated()
+        rod_init = self._resolve_rod_initial_state(config, frame_init, rod_initial_state)
 
         self.sim = self._Simulator()
         self.ground_plane = None
@@ -252,11 +277,11 @@ class CoSimEngine:
         self.stepper: ea.typing.StepperProtocol = ea.PositionVerlet()
         self.time = np.float64(0.0)
 
-        settle_duration = float(config.settle_duration)
-        if settle_duration < 0.0:
-            raise ValueError(f"settle_duration must be >= 0, got {settle_duration}.")
-        if settle_duration > 0.0:
-            self._settle_rod(frame_init, settle_duration)
+        settle_time = float(config.settle_time)
+        if settle_time < 0.0:
+            raise ValueError(f"settle_time must be >= 0, got {settle_time}.")
+        if settle_time > 0.0:
+            self._settle_rod(frame_init, settle_time)
 
         # Ensure frame state arrays match the supplied initial command exactly.
         self.apply_command_state(frame_init, isaac_t=0.0)

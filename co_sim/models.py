@@ -74,7 +74,8 @@ class CoSimConfig:
         default_factory=lambda: np.array([0.5, 0.5, 0.5], dtype=np.float64)
     )
     ground_slip_velocity_tol: float = 1.0e-6
-    settle_duration: float = 0.0
+    settle_time: float = 0.0
+    initial_wire_theta: float | None = None
 
     rod_start: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
     rod_direction: np.ndarray = field(default_factory=lambda: np.array([1.0, 0.0, 0.0]))
