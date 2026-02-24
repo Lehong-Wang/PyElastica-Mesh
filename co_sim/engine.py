@@ -299,10 +299,18 @@ class CoSimEngine:
 
     def _settle_rod(self, frame_state: FrameState, duration: float) -> None:
         # Keep attachment frame fixed and let rod relax under configured forces/contact.
-        self.apply_command_state(frame_state, isaac_t=0.0)
+        settle_state = FrameState(
+            position=np.asarray(frame_state.position, dtype=np.float64),
+            director=np.asarray(frame_state.director, dtype=np.float64),
+            velocity=np.zeros(3, dtype=np.float64),
+            acceleration=np.zeros(3, dtype=np.float64),
+            omega=np.zeros(3, dtype=np.float64),
+            alpha=np.zeros(3, dtype=np.float64),
+        )
         settle_duration = float(duration)
         n_steps = int(np.ceil(settle_duration / self.py_dt))
         for step_idx in range(n_steps):
+            self.apply_command_state(settle_state, isaac_t=0.0)
             if step_idx < (n_steps - 1):
                 dt_step = self.py_dt
             else:
@@ -311,6 +319,7 @@ class CoSimEngine:
                 break
             self._step_size.dt = float(dt_step)
             self.time = self.stepper.step(self.sim, self.time, np.float64(dt_step))
+        self.apply_command_state(settle_state, isaac_t=0.0)
 
         # Warm-start should not consume external timeline.
         self.time = np.float64(0.0)
