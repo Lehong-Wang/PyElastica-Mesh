@@ -11,6 +11,18 @@ from elastica.joint import get_relative_rotation_two_systems
 from .models import CoSimConfig, FrameState, ImpulseResult, RodInitialState, SceneSnapshot
 
 
+def _as_mu_triplet(
+    x: np.ndarray | list[float] | tuple[float, float, float] | float,
+    name: str,
+) -> np.ndarray:
+    arr = np.asarray(x, dtype=np.float64).reshape(-1)
+    if arr.size == 1:
+        arr = np.repeat(arr, 3)
+    if arr.shape != (3,):
+        raise ValueError(f"{name} must be a scalar or shape (3,), got {arr.shape}.")
+    return arr
+
+
 def default_rod_initial_state(config: CoSimConfig | None = None) -> RodInitialState:
     cfg = CoSimConfig() if config is None else config
     return RodInitialState(
@@ -141,6 +153,7 @@ class CoSimEngine:
         ea.BaseSystemCollection,
         ea.Forcing,
         ea.Connections,
+        ea.Contact,
         ea.Constraints,
         ea.Damping,
     ):
@@ -172,6 +185,7 @@ class CoSimEngine:
         ).validated()
 
         self.sim = self._Simulator()
+        self.ground_plane = None
 
         self.rod = ea.CosseratRod.straight_rod(
             n_elements=config.n_elem,
@@ -208,6 +222,8 @@ class CoSimEngine:
         self.sim.add_forcing_to(self.rod).using(
             ea.GravityForces, acc_gravity=np.array([0.0, 0.0, -9.81])
         )
+        if bool(config.use_ground_contact):
+            self._add_ground_contact_with_friction(config)
 
         rest_rot = get_relative_rotation_two_systems(self.frame, 0, self.rod, 0)
         self.sim.connect(self.frame, self.rod, first_connect_idx=0, second_connect_idx=0).using(
@@ -236,8 +252,69 @@ class CoSimEngine:
         self.stepper: ea.typing.StepperProtocol = ea.PositionVerlet()
         self.time = np.float64(0.0)
 
+        settle_duration = float(config.settle_duration)
+        if settle_duration < 0.0:
+            raise ValueError(f"settle_duration must be >= 0, got {settle_duration}.")
+        if settle_duration > 0.0:
+            self._settle_rod(frame_init, settle_duration)
+
         # Ensure frame state arrays match the supplied initial command exactly.
         self.apply_command_state(frame_init, isaac_t=0.0)
+
+    def _add_ground_contact_with_friction(self, config: CoSimConfig) -> None:
+        ground_contact_k = float(config.ground_contact_k)
+        ground_contact_nu = float(config.ground_contact_nu)
+        ground_slip_velocity_tol = float(config.ground_slip_velocity_tol)
+        if ground_contact_k < 0.0:
+            raise ValueError(f"ground_contact_k must be >= 0, got {ground_contact_k}.")
+        if ground_contact_nu < 0.0:
+            raise ValueError(f"ground_contact_nu must be >= 0, got {ground_contact_nu}.")
+        if ground_slip_velocity_tol <= 0.0:
+            raise ValueError(
+                f"ground_slip_velocity_tol must be > 0, got {ground_slip_velocity_tol}."
+            )
+
+        plane_origin = np.array([0.0, 0.0, float(config.ground_z)], dtype=np.float64)
+        plane_normal = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        ground_static_mu = _as_mu_triplet(config.ground_static_mu, "ground_static_mu")
+        ground_kinetic_mu = _as_mu_triplet(config.ground_kinetic_mu, "ground_kinetic_mu")
+
+        self.ground_plane = ea.Plane(plane_origin=plane_origin, plane_normal=plane_normal)
+        self.sim.append(self.ground_plane)
+        self.sim.add_forcing_to(self.rod).using(
+            ea.AnisotropicFrictionalPlane,
+            k=ground_contact_k,
+            nu=ground_contact_nu,
+            plane_origin=plane_origin,
+            plane_normal=plane_normal,
+            slip_velocity_tol=ground_slip_velocity_tol,
+            static_mu_array=ground_static_mu,
+            kinetic_mu_array=ground_kinetic_mu,
+        )
+        self.sim.detect_contact_between(self.rod, self.ground_plane).using(
+            ea.RodPlaneContact,
+            k=ground_contact_k,
+            nu=ground_contact_nu,
+        )
+
+    def _settle_rod(self, frame_state: FrameState, duration: float) -> None:
+        # Keep attachment frame fixed and let rod relax under configured forces/contact.
+        self.apply_command_state(frame_state, isaac_t=0.0)
+        settle_duration = float(duration)
+        n_steps = int(np.ceil(settle_duration / self.py_dt))
+        for step_idx in range(n_steps):
+            if step_idx < (n_steps - 1):
+                dt_step = self.py_dt
+            else:
+                dt_step = settle_duration - self.py_dt * (n_steps - 1)
+            if dt_step <= 0.0:
+                break
+            self._step_size.dt = float(dt_step)
+            self.time = self.stepper.step(self.sim, self.time, np.float64(dt_step))
+
+        # Warm-start should not consume external timeline.
+        self.time = np.float64(0.0)
+        self.tick_impulse.reset()
 
     def apply_command_state(self, state: FrameState, isaac_t: float = 0.0) -> None:
         self.frame_state.update(state, isaac_t=isaac_t)

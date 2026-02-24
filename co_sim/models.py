@@ -63,6 +63,18 @@ class CoSimConfig:
     joint_nu: float = 20.0
     joint_kt: float = 1.0e1
     joint_nut: float = 0.0
+    use_ground_contact: bool = False
+    ground_z: float = 0.0
+    ground_contact_k: float = 1.0e4
+    ground_contact_nu: float = 5.0
+    ground_static_mu: np.ndarray = field(
+        default_factory=lambda: np.array([1.0, 1.0, 1.0], dtype=np.float64)
+    )
+    ground_kinetic_mu: np.ndarray = field(
+        default_factory=lambda: np.array([0.5, 0.5, 0.5], dtype=np.float64)
+    )
+    ground_slip_velocity_tol: float = 1.0e-6
+    settle_duration: float = 0.0
 
     rod_start: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
     rod_direction: np.ndarray = field(default_factory=lambda: np.array([1.0, 0.0, 0.0]))
