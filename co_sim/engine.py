@@ -188,6 +188,48 @@ class CoSimEngine:
             normal=np.asarray(frame_init.director[0], dtype=float),
         ).validated()
 
+    def _resolve_fixed_joint_instance(self):
+        for operator_group in self.sim._feature_group_synchronize._operator_collection:
+            for operator in operator_group:
+                func = getattr(operator, "func", None)
+                if func is None:
+                    continue
+                owner = getattr(func, "__self__", None)
+                if isinstance(owner, ea.FixedJoint):
+                    return owner
+        raise RuntimeError("Unable to locate FixedJoint instance in simulator operators.")
+
+    def _resolve_rod_damper_instance(self):
+        for operator_group in self.sim._feature_group_damping._operator_collection:
+            for operator in operator_group:
+                func = getattr(operator, "func", None)
+                if func is None:
+                    continue
+                owner = getattr(func, "__self__", None)
+                if isinstance(owner, ea.AnalyticalLinearDamper):
+                    return owner
+        raise RuntimeError(
+            "Unable to locate AnalyticalLinearDamper instance in simulator operators."
+        )
+
+    def _set_rod_damping_constant(self, damping_constant: float) -> None:
+        damper = self._rod_damper
+        if not hasattr(damper, "_deprecated_damping_protocol"):
+            raise TypeError(
+                "Configured damper does not support runtime retuning for settle damping."
+            )
+        damper._dampen_rates_protocol = damper._deprecated_damping_protocol(
+            damping_constant=np.float64(damping_constant),
+            time_step=np.float64(self.py_dt),
+        )
+
+    def _set_fixed_joint_k(self, joint_k: float) -> None:
+        self._fixed_joint.k = np.float64(joint_k)
+
+    def _apply_settle_parameters(self, damping_constant: float, joint_k: float) -> None:
+        self._set_rod_damping_constant(damping_constant)
+        self._set_fixed_joint_k(joint_k)
+
     def __init__(
         self,
         config: CoSimConfig,
@@ -201,6 +243,18 @@ class CoSimEngine:
             raise ValueError(f"py_dt must be positive, got {self.py_dt}.")
         if self.isaac_dt <= 0.0:
             raise ValueError(f"isaac_dt must be positive, got {self.isaac_dt}.")
+        runtime_damping_constant = float(config.damping_constant)
+        runtime_joint_k = float(config.joint_k)
+        settle_damping_constant = (
+            runtime_damping_constant
+            if config.settle_damping_constant is None
+            else float(config.settle_damping_constant)
+        )
+        settle_joint_k = (
+            runtime_joint_k
+            if config.settle_joint_k is None
+            else float(config.settle_joint_k)
+        )
 
         frame_init = (
             default_frame_initial_state(config)
@@ -240,7 +294,7 @@ class CoSimEngine:
 
         self.sim.dampen(self.rod).using(
             ea.AnalyticalLinearDamper,
-            damping_constant=config.damping_constant,
+            damping_constant=runtime_damping_constant,
             time_step=self.py_dt,
         )
 
@@ -253,7 +307,7 @@ class CoSimEngine:
         rest_rot = get_relative_rotation_two_systems(self.frame, 0, self.rod, 0)
         self.sim.connect(self.frame, self.rod, first_connect_idx=0, second_connect_idx=0).using(
             ea.FixedJoint,
-            k=config.joint_k,
+            k=runtime_joint_k,
             nu=config.joint_nu,
             kt=config.joint_kt,
             nut=config.joint_nut,
@@ -274,6 +328,8 @@ class CoSimEngine:
         )
 
         self.sim.finalize()
+        self._fixed_joint = self._resolve_fixed_joint_instance()
+        self._rod_damper = self._resolve_rod_damper_instance()
         self.stepper: ea.typing.StepperProtocol = ea.PositionVerlet()
         self.time = np.float64(0.0)
 
@@ -281,7 +337,17 @@ class CoSimEngine:
         if settle_time < 0.0:
             raise ValueError(f"settle_time must be >= 0, got {settle_time}.")
         if settle_time > 0.0:
-            self._settle_rod(frame_init, settle_time)
+            self._apply_settle_parameters(
+                damping_constant=settle_damping_constant,
+                joint_k=settle_joint_k,
+            )
+            try:
+                self._settle_rod(frame_init, settle_time)
+            finally:
+                self._apply_settle_parameters(
+                    damping_constant=runtime_damping_constant,
+                    joint_k=runtime_joint_k,
+                )
 
         # Ensure frame state arrays match the supplied initial command exactly.
         self.apply_command_state(frame_init, isaac_t=0.0)

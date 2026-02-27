@@ -9,7 +9,11 @@ import numpy as np
 
 from render_scripts import post_processing as pp
 
-from .models import CoSimConfig
+Bounds3D = tuple[
+    tuple[float, float],
+    tuple[float, float],
+    tuple[float, float],
+]
 
 
 def _finalize_and_save(fig: plt.Figure, output_path: Path) -> None:
@@ -51,17 +55,78 @@ def plot_force_vs_time(
     _finalize_and_save(fig, output_path)
 
 
+def _sanitize_bounds(bounds: Bounds3D) -> Bounds3D:
+    x_bounds = [float(bounds[0][0]), float(bounds[0][1])]
+    y_bounds = [float(bounds[1][0]), float(bounds[1][1])]
+    z_bounds = [float(bounds[2][0]), float(bounds[2][1])]
+    for axis_bounds in (x_bounds, y_bounds, z_bounds):
+        if not np.isfinite(axis_bounds[0]) or not np.isfinite(axis_bounds[1]):
+            raise ValueError(f"plot_bounds must be finite, got {bounds}.")
+        if axis_bounds[0] > axis_bounds[1]:
+            axis_bounds[0], axis_bounds[1] = axis_bounds[1], axis_bounds[0]
+        if axis_bounds[0] == axis_bounds[1]:
+            axis_bounds[0] -= 0.5
+            axis_bounds[1] += 0.5
+    return (
+        (x_bounds[0], x_bounds[1]),
+        (y_bounds[0], y_bounds[1]),
+        (z_bounds[0], z_bounds[1]),
+    )
+
+
+def _equalized_bounds(bounds: Bounds3D) -> Bounds3D:
+    """Expand bounds to a cube around the same center for equal axis unit length."""
+    centers = np.array(
+        [0.5 * (bounds[0][0] + bounds[0][1]),
+         0.5 * (bounds[1][0] + bounds[1][1]),
+         0.5 * (bounds[2][0] + bounds[2][1])],
+        dtype=float,
+    )
+    spans = np.array(
+        [bounds[0][1] - bounds[0][0], bounds[1][1] - bounds[1][0], bounds[2][1] - bounds[2][0]],
+        dtype=float,
+    )
+    max_span = float(np.max(spans))
+    if not np.isfinite(max_span) or max_span <= 0.0:
+        max_span = 1.0
+    half = 0.5 * max_span
+    return (
+        (float(centers[0] - half), float(centers[0] + half)),
+        (float(centers[1] - half), float(centers[1] + half)),
+        (float(centers[2] - half), float(centers[2] + half)),
+    )
+
+
+def _motion_bounds_from_all_rods(rod_positions: np.ndarray) -> Bounds3D:
+    """
+    Build xyz bounds from motion range across all rods and all frames.
+
+    Expected shape: (n_frames, n_rods, 3, n_nodes).
+    """
+    mins = np.nanmin(rod_positions, axis=(0, 1, 3))
+    maxs = np.nanmax(rod_positions, axis=(0, 1, 3))
+    spans = maxs - mins
+    max_span = float(np.max(spans))
+    pad = max(0.05 * max_span, 1.0e-4)
+    bounds = (
+        (float(mins[0] - pad), float(maxs[0] + pad)),
+        (float(mins[1] - pad), float(maxs[1] + pad)),
+        (float(mins[2] - pad), float(maxs[2] + pad)),
+    )
+    return _equalized_bounds(bounds)
+
+
 def render_multiview_video(
     sampled_rod_pos: np.ndarray,
     sampled_frame_pos: np.ndarray,
     sampled_frame_dir: np.ndarray,
     sampled_time: np.ndarray,
     sampled_mean_force: np.ndarray,
-    cfg: CoSimConfig,
     video_path: Path,
     render_fps: int | None,
     render_speed: float,
     force_vector_scale: float,
+    plot_bounds: Bounds3D | None = None,
 ) -> None:
     frame_span = 0.05
     frame_line = sampled_frame_pos + frame_span * np.stack(
@@ -73,15 +138,10 @@ def render_multiview_video(
     frame_line = np.pad(frame_line, ((0, 0), (0, 0), (0, pad_len)), constant_values=np.nan)
 
     rod_for_plot = np.concatenate([sampled_rod_pos[:, None, ...], frame_line[:, None, ...]], axis=1)
-
-    joint_center = sampled_rod_pos[:, :, 0].mean(axis=0)
-    x_window = max(0.25 * cfg.base_length, 0.2)
-    y_window = 0.25
-    z_window = 0.2
     bounds = (
-        (float(joint_center[0] - x_window / 2), float(joint_center[0] + x_window / 2)),
-        (float(joint_center[1] - y_window / 2), float(joint_center[1] + y_window / 2)),
-        (float(joint_center[2] - z_window / 2), float(joint_center[2] + z_window / 2)),
+        _motion_bounds_from_all_rods(rod_for_plot)
+        if plot_bounds is None
+        else _equalized_bounds(_sanitize_bounds(plot_bounds))
     )
 
     pp.plot_rods_multiview(
