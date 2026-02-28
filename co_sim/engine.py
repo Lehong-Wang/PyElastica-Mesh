@@ -47,7 +47,8 @@ def default_frame_initial_state(config: CoSimConfig | None = None) -> FrameState
 class FrameStateBuffer:
     """Mutable state buffer used by the kinematic frame constraint."""
 
-    def __init__(self) -> None:
+    def __init__(self, control_director: bool = True) -> None:
+        self.control_director = bool(control_director)
         self.position = np.zeros(3)
         self.director = np.eye(3)
         self.velocity = np.zeros(3)
@@ -68,11 +69,12 @@ class FrameStateBuffer:
 
     def apply_to_system(self, system) -> None:
         np.copyto(system.position_collection[:, 0], self.position)
-        np.copyto(system.director_collection[..., 0], self.director)
         np.copyto(system.velocity_collection[:, 0], self.velocity)
-        np.copyto(system.omega_collection[:, 0], self.omega_local)
         np.copyto(system.acceleration_collection[:, 0], self.acceleration)
-        np.copyto(system.alpha_collection[:, 0], self.alpha_local)
+        if self.control_director:
+            np.copyto(system.director_collection[..., 0], self.director)
+            np.copyto(system.omega_collection[:, 0], self.omega_local)
+            np.copyto(system.alpha_collection[:, 0], self.alpha_local)
         np.copyto(system.external_forces, 0.0)
         np.copyto(system.external_torques, 0.0)
 
@@ -89,9 +91,10 @@ class FrameStateBuffer:
 class RateOnlyFrameBC(ea.ConstraintBase):
     """Constrain frame rates only; position/director are integrated by the stepper."""
 
-    def __init__(self, state: FrameStateBuffer, **kwargs):
+    def __init__(self, state: FrameStateBuffer, control_director: bool = True, **kwargs):
         super().__init__(**kwargs)
         self.state = state
+        self.control_director = bool(control_director)
 
     def constrain_values(self, system, time: np.float64) -> None:
         # Leave position/director unconstrained so they evolve from rates.
@@ -99,7 +102,8 @@ class RateOnlyFrameBC(ea.ConstraintBase):
 
     def constrain_rates(self, system, time: np.float64) -> None:
         np.copyto(system.velocity_collection[:, 0], self.state.velocity)
-        np.copyto(system.omega_collection[:, 0], self.state.omega_local)
+        if self.control_director:
+            np.copyto(system.omega_collection[:, 0], self.state.omega_local)
 
 
 class _ImpulseAccumulator:
@@ -277,6 +281,15 @@ class CoSimEngine:
             youngs_modulus=config.youngs_modulus,
             shear_modulus=config.youngs_modulus / (2.0 * config.shear_modulus_ratio),
         )
+        axial_stretch_stiffening = float(config.axial_stretch_stiffening)
+        if not np.isfinite(axial_stretch_stiffening) or axial_stretch_stiffening <= 0.0:
+            raise ValueError(
+                "axial_stretch_stiffening must be finite and > 0, "
+                f"got {axial_stretch_stiffening}."
+            )
+        if not np.isclose(axial_stretch_stiffening, 1.0):
+            # Match mytest/vary_wire_property: penalize axial stretch (d3 direction).
+            self.rod.shear_matrix[2, 2, :] *= axial_stretch_stiffening
         self.sim.append(self.rod)
 
         frame_axis = frame_init.director[2]
@@ -314,9 +327,13 @@ class CoSimEngine:
             rest_rotation_matrix=rest_rot,
         )
 
-        self.frame_state = FrameStateBuffer()
+        self.frame_state = FrameStateBuffer(control_director=config.control_frame_director)
         self.frame_state.update(frame_init, isaac_t=0.0)
-        self.sim.constrain(self.frame).using(RateOnlyFrameBC, state=self.frame_state)
+        self.sim.constrain(self.frame).using(
+            RateOnlyFrameBC,
+            state=self.frame_state,
+            control_director=config.control_frame_director,
+        )
 
         # Register after joint so synchronize() sees joint loads first, then records+zeros.
         self._step_size = _StepSizeBuffer(self.py_dt)

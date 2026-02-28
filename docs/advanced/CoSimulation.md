@@ -108,11 +108,13 @@ All runtime parameters are in `CoSimConfig`.
 - timing:
   - `py_dt`, `isaac_dt`, `final_time`, `output_interval`.
 - rod:
-  - `n_elem`, `base_length`, `base_radius`, `density`, `youngs_modulus`, `shear_modulus_ratio`, `damping_constant`.
+  - `n_elem`, `base_length`, `base_radius`, `density`, `youngs_modulus`, `shear_modulus_ratio`, `axial_stretch_stiffening`, `damping_constant`.
 - joint:
   - `joint_k`, `joint_nu`, `joint_kt`, `joint_nut`.
 - initial states:
   - `rod_start`, `rod_direction`, `rod_normal`, `frame_initial_*`.
+- frame orientation control:
+  - `control_frame_director` (when `False`, Isaac director/angular-rate commands are not enforced).
 - command model (mock script):
   - `command_sine_amp`, `command_sine_freq`.
 - output and render:

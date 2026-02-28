@@ -58,6 +58,7 @@ class CoSimConfig:
     density: float = 1_000.0
     youngs_modulus: float = 1.0e6
     shear_modulus_ratio: float = 1.5
+    axial_stretch_stiffening: float = 1.0
     damping_constant: float = 1.0e-2
     joint_k: float = 5.0e2
     joint_nu: float = 20.0
@@ -100,6 +101,7 @@ class CoSimConfig:
     frame_initial_acceleration: np.ndarray = field(default_factory=lambda: np.zeros(3))
     frame_initial_omega: np.ndarray = field(default_factory=lambda: np.zeros(3))
     frame_initial_alpha: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    control_frame_director: bool = True
 
     command_sine_amp: float = 0.1
     command_sine_freq: float = 1.0
