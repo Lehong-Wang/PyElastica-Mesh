@@ -101,7 +101,6 @@ class CoSimConfig:
     frame_initial_acceleration: np.ndarray = field(default_factory=lambda: np.zeros(3))
     frame_initial_omega: np.ndarray = field(default_factory=lambda: np.zeros(3))
     frame_initial_alpha: np.ndarray = field(default_factory=lambda: np.zeros(3))
-    control_frame_director: bool = True
 
     command_sine_amp: float = 0.1
     command_sine_freq: float = 1.0

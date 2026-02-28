@@ -113,8 +113,6 @@ All runtime parameters are in `CoSimConfig`.
   - `joint_k`, `joint_nu`, `joint_kt`, `joint_nut`.
 - initial states:
   - `rod_start`, `rod_direction`, `rod_normal`, `frame_initial_*`.
-- frame orientation control:
-  - `control_frame_director` (when `False`, Isaac director/angular-rate commands are not enforced).
 - command model (mock script):
   - `command_sine_amp`, `command_sine_freq`.
 - output and render:

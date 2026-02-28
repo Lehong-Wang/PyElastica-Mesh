@@ -297,7 +297,6 @@ if __name__ == "__main__":
         isaac_dt=1.0e-2,
         final_time=drop_duration + circular_duration + hold_duration,
         output_name="cosim_drop_circular_hold",
-        control_frame_director=False,
         axial_stretch_stiffening=1.0e3,
         use_ground_contact=True,
         ground_z=-0.5,

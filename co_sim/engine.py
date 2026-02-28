@@ -6,7 +6,6 @@ from collections.abc import Callable
 
 import elastica as ea
 import numpy as np
-from elastica.joint import get_relative_rotation_two_systems
 
 from .models import CoSimConfig, FrameState, ImpulseResult, RodInitialState, SceneSnapshot
 
@@ -47,8 +46,7 @@ def default_frame_initial_state(config: CoSimConfig | None = None) -> FrameState
 class FrameStateBuffer:
     """Mutable state buffer used by the kinematic frame constraint."""
 
-    def __init__(self, control_director: bool = True) -> None:
-        self.control_director = bool(control_director)
+    def __init__(self) -> None:
         self.position = np.zeros(3)
         self.director = np.eye(3)
         self.velocity = np.zeros(3)
@@ -72,9 +70,9 @@ class FrameStateBuffer:
         np.copyto(system.velocity_collection[:, 0], self.velocity)
         np.copyto(system.acceleration_collection[:, 0], self.acceleration)
         if self.control_director:
-            np.copyto(system.director_collection[..., 0], self.director)
-            np.copyto(system.omega_collection[:, 0], self.omega_local)
-            np.copyto(system.alpha_collection[:, 0], self.alpha_local)
+        np.copyto(system.director_collection[..., 0], self.director)
+        np.copyto(system.omega_collection[:, 0], self.omega_local)
+        np.copyto(system.alpha_collection[:, 0], self.alpha_local)
         np.copyto(system.external_forces, 0.0)
         np.copyto(system.external_torques, 0.0)
 
@@ -91,10 +89,9 @@ class FrameStateBuffer:
 class RateOnlyFrameBC(ea.ConstraintBase):
     """Constrain frame rates only; position/director are integrated by the stepper."""
 
-    def __init__(self, state: FrameStateBuffer, control_director: bool = True, **kwargs):
+    def __init__(self, state: FrameStateBuffer, **kwargs):
         super().__init__(**kwargs)
         self.state = state
-        self.control_director = bool(control_director)
 
     def constrain_values(self, system, time: np.float64) -> None:
         # Leave position/director unconstrained so they evolve from rates.
@@ -102,8 +99,7 @@ class RateOnlyFrameBC(ea.ConstraintBase):
 
     def constrain_rates(self, system, time: np.float64) -> None:
         np.copyto(system.velocity_collection[:, 0], self.state.velocity)
-        if self.control_director:
-            np.copyto(system.omega_collection[:, 0], self.state.omega_local)
+        np.copyto(system.omega_collection[:, 0], self.state.omega_local)
 
 
 class _ImpulseAccumulator:
@@ -317,22 +313,21 @@ class CoSimEngine:
         if bool(config.use_ground_contact):
             self._add_ground_contact_with_friction(config)
 
-        rest_rot = get_relative_rotation_two_systems(self.frame, 0, self.rod, 0)
         self.sim.connect(self.frame, self.rod, first_connect_idx=0, second_connect_idx=0).using(
             ea.FixedJoint,
             k=runtime_joint_k,
             nu=config.joint_nu,
             kt=config.joint_kt,
             nut=config.joint_nut,
-            rest_rotation_matrix=rest_rot,
+            # Keep fixed-joint orientation target independent of initial_wire_theta.
+            rest_rotation_matrix=np.eye(3),
         )
 
-        self.frame_state = FrameStateBuffer(control_director=config.control_frame_director)
+        self.frame_state = FrameStateBuffer()
         self.frame_state.update(frame_init, isaac_t=0.0)
         self.sim.constrain(self.frame).using(
             RateOnlyFrameBC,
             state=self.frame_state,
-            control_director=config.control_frame_director,
         )
 
         # Register after joint so synchronize() sees joint loads first, then records+zeros.
