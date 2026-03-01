@@ -69,7 +69,6 @@ class FrameStateBuffer:
         np.copyto(system.position_collection[:, 0], self.position)
         np.copyto(system.velocity_collection[:, 0], self.velocity)
         np.copyto(system.acceleration_collection[:, 0], self.acceleration)
-        if self.control_director:
         np.copyto(system.director_collection[..., 0], self.director)
         np.copyto(system.omega_collection[:, 0], self.omega_local)
         np.copyto(system.alpha_collection[:, 0], self.alpha_local)
