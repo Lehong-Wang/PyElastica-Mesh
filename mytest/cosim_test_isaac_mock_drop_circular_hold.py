@@ -297,7 +297,7 @@ if __name__ == "__main__":
         isaac_dt=1.0e-2,
         final_time=drop_duration + circular_duration + hold_duration,
         output_name="cosim_drop_circular_hold",
-        axial_stretch_stiffening=1.0e3,
+        axial_stretch_stiffening=1.0e2,
         use_ground_contact=True,
         ground_z=-0.5,
         ground_contact_k=1.0e2,
@@ -305,6 +305,7 @@ if __name__ == "__main__":
         ground_static_mu=(0.8, 0.8, 0.8),
         ground_kinetic_mu=(0.6, 0.6, 0.6),
         ground_slip_velocity_tol=1.0e-6,
+        render_fps = 15,
         render=True,
     )
     results = run_demo(

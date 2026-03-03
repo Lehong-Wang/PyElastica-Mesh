@@ -24,6 +24,19 @@ def _as_mu_triplet(
 
 def default_rod_initial_state(config: CoSimConfig | None = None) -> RodInitialState:
     cfg = CoSimConfig() if config is None else config
+    theta_raw = cfg.initial_wire_theta
+    if theta_raw is not None:
+        theta = float(theta_raw)
+        if not np.isfinite(theta):
+            raise ValueError(f"initial_wire_theta must be finite, got {theta}.")
+        c = float(np.cos(theta))
+        s = float(np.sin(theta))
+        return RodInitialState(
+            start=np.asarray(cfg.frame_initial_position, dtype=float),
+            direction=np.array([c, s, 0.0], dtype=float),
+            normal=np.array([0.0, 0.0, 1.0], dtype=float),
+        )
+
     return RodInitialState(
         start=np.asarray(cfg.rod_start, dtype=float),
         direction=np.asarray(cfg.rod_direction, dtype=float),
