@@ -56,6 +56,11 @@ def _compute_render_indices(
         return DEFAULT_FPS, []
     if speed <= 0.0:
         raise ValueError(f"speed must be > 0.0, got {speed}.")
+    # Guard against invalid user input (e.g. fps=0), which makes ffmpeg fail.
+    if fps is not None:
+        fps = int(fps)
+        if fps <= 0:
+            fps = None
     times_arr = None if times is None or len(times) == 0 else np.asarray(times)
     default_fps = DEFAULT_FPS if fps is None else fps
     if times_arr is None or len(times_arr) < 2:
