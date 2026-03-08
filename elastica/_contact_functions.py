@@ -204,6 +204,10 @@ def _calculate_contact_forces_rod_rod(
                 edge_collection_rod_two[..., j],
             )
             distance_vector_length = _norm(distance_vector)
+            # Degenerate segment pairs can yield zero distance; skip to avoid
+            # NaN normalization and global state corruption.
+            if distance_vector_length <= 1.0e-14:
+                continue
             distance_vector /= distance_vector_length
             gamma = radii_sum - distance_vector_length
 

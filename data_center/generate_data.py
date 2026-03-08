@@ -2,7 +2,8 @@
 Generate multiple cable-like rods guided toward sampled target poses.
 
 Behavior:
-- Load `1_pos` and `1_director` from `data_center/data_center_points.npz`.
+- Load `{connector_id}_pos` and `{connector_id}_director` from
+  `data_center/data_center_points.npz`.
 - Randomly sample 16 targets.
 - For each sampled target, create a rod from a left/right start side based on target y
   versus mean y (80% left if y < mean_y, otherwise 20% left).
@@ -10,8 +11,7 @@ Behavior:
   1) Move only in y to target y over 1.0 s.
   2) Interpolate to target position and target director over 0.5 s.
 - Add contact against:
-  - fixed ring meshes (`data_center/ring_1_1.stl`, `data_center/ring_1_2.stl`)
-    via RodMeshContact,
+  - fixed ring mesh (`data_center/ring_{connector_id}.stl`) via RodMeshContact,
   - all other rods via RodRodContact,
   - plane x = -0.075 with normal +x via RodPlaneContact.
 - Render a four-view video with rods + ring mesh + visualized x-plane.
@@ -275,13 +275,13 @@ def _build_render_mesh_with_plane(
 
 def generate_cable(
     data_npz_path: str | Path = "data_center/data_center_points.npz",
-    mesh_path_one: str | Path = "data_center/ring_1_1.stl",
-    mesh_path_two: str | Path = "data_center/ring_1_2.stl",
+    connector_id: int = 1,
+    mesh_path: str | Path | None = None,
     output: str | Path = "data_center/generate_cable_4view.mp4",
     state_output: str | Path = "data_center/generate_cable_state.npz",
-    n_sample: int = 6,
+    n_sample: int = 16,
     seed: int | None = None,
-    dt: float = 2.0e-5,
+    dt: float = 2e-5,
     contact_k: float = 2.0e3,
     contact_nu: float = 2.0,
     damping_constant: float = 2e-1,
@@ -309,8 +309,14 @@ def generate_cable(
         pass
 
     data_npz_path = Path(data_npz_path)
-    mesh_path_one = Path(mesh_path_one)
-    mesh_path_two = Path(mesh_path_two)
+    connector_id = int(connector_id)
+    if connector_id <= 0:
+        raise ValueError(f"connector_id must be >= 1, got {connector_id}")
+    if mesh_path is None:
+        mesh_path = Path(__file__).resolve().parent / f"ring_{connector_id}.stl"
+    mesh_path = Path(mesh_path)
+    pos_key = f"{connector_id}_pos"
+    director_key = f"{connector_id}_director"
     tagged_output_path, tagged_state_output_path = _build_tagged_output_paths(
         output=Path(output),
         state_output=Path(state_output),
@@ -333,24 +339,24 @@ def generate_cable(
 
     if not data_npz_path.exists():
         raise FileNotFoundError(f"Data file not found: {data_npz_path}")
-    if not mesh_path_one.exists():
-        raise FileNotFoundError(f"Mesh file not found: {mesh_path_one}")
-    if not mesh_path_two.exists():
-        raise FileNotFoundError(f"Mesh file not found: {mesh_path_two}")
+    if not mesh_path.exists():
+        raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
 
     with np.load(data_npz_path) as data:
-        if "1_pos" not in data or "1_director" not in data:
+        if pos_key not in data or director_key not in data:
             raise KeyError(
-                f"{data_npz_path} must contain keys '1_pos' and '1_director'. Found: {list(data.files)}"
+                f"{data_npz_path} must contain keys '{pos_key}' and '{director_key}'. "
+                f"Found: {list(data.files)}"
             )
-        all_positions = np.asarray(data["1_pos"], dtype=np.float64)
-        all_directors = np.asarray(data["1_director"], dtype=np.float64)
+        all_positions = np.asarray(data[pos_key], dtype=np.float64)
+        all_directors = np.asarray(data[director_key], dtype=np.float64)
 
     if all_positions.ndim != 2 or all_positions.shape[1] != 3:
-        raise ValueError(f"'1_pos' must have shape (N,3), got {all_positions.shape}")
+        raise ValueError(f"'{pos_key}' must have shape (N,3), got {all_positions.shape}")
     if all_directors.shape != (all_positions.shape[0], 3, 3):
         raise ValueError(
-            f"'1_director' must have shape (N,3,3) matching N in '1_pos', got {all_directors.shape}"
+            f"'{director_key}' must have shape (N,3,3) matching N in '{pos_key}', "
+            f"got {all_directors.shape}"
         )
     if n_sample <= 0 or n_sample > all_positions.shape[0]:
         raise ValueError(f"n_sample must be in [1, {all_positions.shape[0]}], got {n_sample}")
@@ -383,7 +389,8 @@ def generate_cable(
         dtype=np.float64,
     )
 
-    mean_pos = sampled_positions.mean(axis=0)
+    # Use global connector statistics from all selected-key positions.
+    mean_pos = all_positions.mean(axis=0)
     mean_x, mean_y, mean_z = (float(mean_pos[0]), float(mean_pos[1]), float(mean_pos[2]))
 
     left_start = np.array([mean_x - 0.02, mean_y - 0.3, mean_z + 0.0], dtype=np.float64)
@@ -479,28 +486,17 @@ def generate_cable(
             time_step=dt,
         )
 
-    ring_mesh_one = ea.Mesh(str(mesh_path_one))
-    ring_mesh_two = ea.Mesh(str(mesh_path_two))
+    ring_mesh = ea.Mesh(str(mesh_path))
     ring_density = 1000.0
-    ring_volume_one = ring_mesh_one.compute_volume()
-    ring_inertia_one = ring_mesh_one.compute_inertia_tensor(density=ring_density)
-    ring_body_one = ea.MeshRigidBody(
-        mesh=ring_mesh_one,
+    ring_volume = ring_mesh.compute_volume()
+    ring_inertia = ring_mesh.compute_inertia_tensor(density=ring_density)
+    ring_body = ea.MeshRigidBody(
+        mesh=ring_mesh,
         density=ring_density,
-        volume=ring_volume_one,
-        mass_second_moment_of_inertia=ring_inertia_one,
+        volume=ring_volume,
+        mass_second_moment_of_inertia=ring_inertia,
     )
-    simulator.append(ring_body_one)
-
-    ring_volume_two = ring_mesh_two.compute_volume()
-    ring_inertia_two = ring_mesh_two.compute_inertia_tensor(density=ring_density)
-    ring_body_two = ea.MeshRigidBody(
-        mesh=ring_mesh_two,
-        density=ring_density,
-        volume=ring_volume_two,
-        mass_second_moment_of_inertia=ring_inertia_two,
-    )
-    simulator.append(ring_body_two)
+    simulator.append(ring_body)
 
     plane_x = -0.075
     wall_plane = ea.Plane(
@@ -518,13 +514,7 @@ def generate_cable(
     rod_plane_nu = float(contact_nu)
 
     for rod in rods:
-        simulator.detect_contact_between(rod, ring_body_one).using(
-            ea.RodMeshContact,
-            k=rod_mesh_k,
-            nu=rod_mesh_nu,
-            mesh_frozen=True,
-        )
-        simulator.detect_contact_between(rod, ring_body_two).using(
+        simulator.detect_contact_between(rod, ring_body).using(
             ea.RodMeshContact,
             k=rod_mesh_k,
             nu=rod_mesh_nu,
@@ -568,8 +558,8 @@ def generate_cable(
             self.rod_director.append(
                 np.stack([rod_i.director_collection.copy() for rod_i in rods], axis=0)
             )
-            self.mesh_position.append(ring_body_one.position_collection[:, 0].copy())
-            self.mesh_director.append(ring_body_one.director_collection[:, :, 0].copy())
+            self.mesh_position.append(ring_body.position_collection[:, 0].copy())
+            self.mesh_director.append(ring_body.director_collection[:, :, 0].copy())
 
         def make_callback(self, system, time, current_step):
             if current_step % self.step_skip:
@@ -603,12 +593,10 @@ def generate_cable(
     mesh_pos_arr = np.asarray(cb.mesh_position, dtype=np.float64)
     mesh_dir_arr = np.asarray(cb.mesh_director, dtype=np.float64)
 
-    ring_vertices_one = np.asarray(ring_mesh_one.mesh.vertices, dtype=np.float64)
-    ring_vertices_two = np.asarray(ring_mesh_two.mesh.vertices, dtype=np.float64)
-    ring_vertices = np.vstack([ring_vertices_one, ring_vertices_two])
+    ring_vertices = np.asarray(ring_mesh.mesh.vertices, dtype=np.float64)
     base_bounds = _compute_bounds_with_margin(rod_pos_arr, ring_vertices, margin=0.08)
     render_mesh = _build_render_mesh_with_plane(
-        [ring_mesh_one.mesh, ring_mesh_two.mesh],
+        [ring_mesh.mesh],
         plane_x,
         base_bounds,
     )
@@ -639,43 +627,16 @@ def generate_cable(
         plane_z=None,
     )
 
-    state_payload: dict[str, object] = {
-        "sampled_indices": sampled_indices.astype(np.int64),
-        "seed": np.int64(seed),
-        "sampled_positions": sampled_positions,
-        "sampled_directors": sampled_directors,
-        "rod_start_positions": np.asarray(rod_start_positions),
-        "time": time_arr,
-        "rod_position": rod_pos_arr,
-        "rod_director": rod_dir_arr,
-        "mesh_position": mesh_pos_arr,
-        "mesh_director": mesh_dir_arr,
-        "dt": np.float64(dt),
-        "final_time": np.float64(final_time),
-        "stage_one_duration": np.float64(stage_one_duration),
-        "stage_two_duration": np.float64(stage_two_duration),
-        "activation_interval": np.float64(activation_interval),
-        "outward_y_step": np.float64(outward_y_step),
-        "contact_k": np.float64(contact_k),
-        "contact_nu": np.float64(contact_nu),
-        "damping_constant": np.float64(damping_constant),
-        "n_elements": np.int64(n_elem),
-        "density": np.float64(rod_density),
-        "base_length": np.float64(rod_length),
-        "base_radius": np.float64(rod_radius),
-        "youngs_modulus": np.float64(youngs_modulus_val),
-        "plane_x": np.float64(plane_x),
-    }
-    for rod_idx in range(len(rods)):
-        key_id = rod_idx + 1
-        state_payload[f"{key_id}_time"] = time_arr
-        state_payload[f"{key_id}_pos"] = rod_pos_arr[:, rod_idx, :, :]
-        state_payload[f"{key_id}_director"] = rod_dir_arr[:, rod_idx, :, :, :]
-
-    np.savez_compressed(state_output_path, **state_payload)
+    np.savez_compressed(
+        state_output_path,
+        time=time_arr,
+        pos=rod_pos_arr,
+        director=rod_dir_arr,
+    )
 
     duplicate_count = int(all_positions.shape[0] - unique_source_indices.size)
     print(f"[generate_cable] seed: {seed}")
+    print(f"[generate_cable] connector_id: {connector_id}")
     print(f"[generate_cable] sampled indices: {sampled_indices.tolist()}")
     if duplicate_count > 0:
         print(
